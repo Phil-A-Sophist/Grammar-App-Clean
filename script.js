@@ -3,6 +3,7 @@ const connectionLayer = document.getElementById('connection-layer');
 const stagingArea = document.getElementById('staging-area');
 let zIndexCounter = 1;
 const connections = [];
+const childMap = new Map();
 let selectedTile = null;
 
 function createSVGLine(x1, y1, x2, y2) {
@@ -15,11 +16,20 @@ function createSVGLine(x1, y1, x2, y2) {
   line.setAttribute("stroke-width", "2");
   line.setAttribute("class", "connector-line");
 
-  // Allow click-to-delete
   line.addEventListener("click", () => {
     line.remove();
     const index = connections.findIndex(c => c.line === line);
-    if (index !== -1) connections.splice(index, 1);
+    if (index !== -1) {
+      const conn = connections.splice(index, 1)[0];
+      if (childMap.has(conn.from)) {
+        const updated = childMap.get(conn.from).filter(c => c !== conn.to);
+        if (updated.length) {
+          childMap.set(conn.from, updated);
+        } else {
+          childMap.delete(conn.from);
+        }
+      }
+    }
   });
 
   return line;
@@ -35,7 +45,6 @@ function getTileCenter(tile) {
 }
 
 function updateConnections(tile) {
-  const canvasBox = canvasArea.getBoundingClientRect();
   connections.forEach(c => {
     if (c.from === tile || c.to === tile) {
       const from = getTileCenter(c.from);
@@ -48,12 +57,44 @@ function updateConnections(tile) {
   });
 }
 
+function layoutChildren(parent) {
+  const children = childMap.get(parent);
+  if (!children || children.length === 0) return;
+
+  const parentBox = parent.getBoundingClientRect();
+  const canvasBox = canvasArea.getBoundingClientRect();
+  const parentX = parentBox.left - canvasBox.left;
+  const parentY = parentBox.top - canvasBox.top;
+  const centerX = parentX + parentBox.width / 2;
+
+  const spacing = 140;
+  const count = children.length;
+  const totalWidth = spacing * (count - 1);
+  const startX = centerX - totalWidth / 2;
+
+  children.forEach((child, i) => {
+    child.style.left = `${startX + i * spacing}px`;
+    child.style.top = `${parentY + 100}px`;
+    updateConnections(child);
+  });
+}
+
 function connectTiles(fromTile, toTile) {
   const from = getTileCenter(fromTile);
   const to = getTileCenter(toTile);
+
   const line = createSVGLine(from.x, from.y, to.x, to.y);
   connectionLayer.appendChild(line);
   connections.push({ from: fromTile, to: toTile, line });
+
+  if (to.y > from.y) {
+    if (!childMap.has(fromTile)) childMap.set(fromTile, []);
+    const list = childMap.get(fromTile);
+    if (!list.includes(toTile) && list.length < 6) {
+      list.push(toTile);
+      layoutChildren(fromTile);
+    }
+  }
 }
 
 function makeDraggable(tile) {
@@ -66,6 +107,7 @@ function makeDraggable(tile) {
       tile.style.left = (mouseX - offsetX) + 'px';
       tile.style.top = (mouseY - offsetY) + 'px';
       updateConnections(tile);
+      layoutChildren(tile);
     }
 
     function onMouseMove(e) {
@@ -79,12 +121,16 @@ function makeDraggable(tile) {
     };
   });
 
-  tile.addEventListener('dblclick', () => {
+  tile.ondragstart = () => false;
+}
+
+function attachConnectionHandler(tile) {
+  tile.addEventListener('click', () => {
     if (!selectedTile) {
       selectedTile = tile;
       tile.classList.add('selected');
     } else if (selectedTile === tile) {
-      selectedTile.classList.remove('selected');
+      tile.classList.remove('selected');
       selectedTile = null;
     } else {
       connectTiles(selectedTile, tile);
@@ -92,8 +138,6 @@ function makeDraggable(tile) {
       selectedTile = null;
     }
   });
-
-  tile.ondragstart = () => false;
 }
 
 function createTile(className, text, editable = false) {
@@ -126,29 +170,41 @@ function createTile(className, text, editable = false) {
   return tile;
 }
 
-function moveToCanvas(tile) {
+function moveToCanvas(tile, e) {
+  const tileBox = tile.getBoundingClientRect();
+  const canvasBox = canvasArea.getBoundingClientRect();
+  const x = tileBox.left - canvasBox.left;
+  const y = tileBox.top - canvasBox.top;
+
   canvasArea.appendChild(tile);
-  tile.style.left = '20px';
-  tile.style.top = '20px';
+  tile.style.left = `${x}px`;
+  tile.style.top = `${y}px`;
+
+  attachConnectionHandler(tile);
+
+  // Simulate click for connection selection
+  setTimeout(() => {
+    tile.click();
+  }, 0);
 }
 
 document.getElementById('add-word-btn').addEventListener('click', () => {
   const part = document.getElementById('part-of-speech').value;
   const tile = createTile(`word-tile ${part}`, 'type here', true);
-  tile.addEventListener('dblclick', () => moveToCanvas(tile));
+  tile.addEventListener('dblclick', (e) => moveToCanvas(tile, e));
   stagingArea.appendChild(tile);
 });
 
 document.getElementById('add-phrase-btn').addEventListener('click', () => {
   const phrase = document.getElementById('phrase-type').value;
   const tile = createTile('structure-node', phrase);
-  tile.addEventListener('dblclick', () => moveToCanvas(tile));
+  tile.addEventListener('dblclick', (e) => moveToCanvas(tile, e));
   stagingArea.appendChild(tile);
 });
 
 document.getElementById('add-clause-btn').addEventListener('click', () => {
   const clause = document.getElementById('clause-type').value;
   const tile = createTile('structure-node', clause);
-  tile.addEventListener('dblclick', () => moveToCanvas(tile));
+  tile.addEventListener('dblclick', (e) => moveToCanvas(tile, e));
   stagingArea.appendChild(tile);
 });
