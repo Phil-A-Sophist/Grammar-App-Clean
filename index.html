@@ -59,6 +59,16 @@
       overflow: hidden;
     }
 
+    #connection-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
+
     .word-tile, .structure-node {
       border: 2px solid #444;
       padding: 10px;
@@ -68,10 +78,15 @@
       cursor: grab;
       user-select: none;
       position: absolute;
+      z-index: 2;
     }
 
     .placeholder {
       color: #999;
+    }
+
+    .selected {
+      outline: 3px solid black;
     }
 
     .noun { background-color: #FFD700; }
@@ -151,96 +166,10 @@
 
   <div id="staging-area"></div>
 
-  <div id="canvas-area"></div>
+  <div id="canvas-area">
+    <svg id="connection-layer"></svg>
+  </div>
 
-  <script>
-    const stagingArea = document.getElementById('staging-area');
-    const canvasArea = document.getElementById('canvas-area');
-    let zIndexCounter = 1;
-
-    function makeDraggable(tile) {
-      tile.addEventListener('mousedown', function (e) {
-        const offsetX = e.clientX - tile.offsetLeft;
-        const offsetY = e.clientY - tile.offsetTop;
-
-        tile.style.zIndex = zIndexCounter++;
-
-        function moveAt(mouseX, mouseY) {
-          tile.style.left = (mouseX - offsetX) + 'px';
-          tile.style.top = (mouseY - offsetY) + 'px';
-        }
-
-        function onMouseMove(e) {
-          moveAt(e.clientX, e.clientY);
-        }
-
-        document.addEventListener('mousemove', onMouseMove);
-
-        tile.onmouseup = function () {
-          document.removeEventListener('mousemove', onMouseMove);
-          tile.onmouseup = null;
-        };
-      });
-
-      tile.ondragstart = () => false; // disable built-in drag behavior
-    }
-
-    function createTile(className, text, editable = false) {
-      const tile = document.createElement('div');
-      tile.className = className;
-
-      if (editable) {
-        tile.contentEditable = true;
-        tile.innerText = 'type here';
-        tile.classList.add('placeholder');
-
-        tile.addEventListener('focus', () => {
-          if (tile.innerText === 'type here') {
-            tile.innerText = '';
-            tile.classList.remove('placeholder');
-          }
-        });
-
-        tile.addEventListener('blur', () => {
-          if (tile.innerText.trim() === '') {
-            tile.innerText = 'type here';
-            tile.classList.add('placeholder');
-          }
-        });
-      } else {
-        tile.innerText = text;
-      }
-
-      makeDraggable(tile);
-      return tile;
-    }
-
-    function moveToCanvas(tile) {
-      canvasArea.appendChild(tile);
-      tile.style.left = '20px';
-      tile.style.top = '20px';
-    }
-
-    document.getElementById('add-word-btn').addEventListener('click', () => {
-      const part = document.getElementById('part-of-speech').value;
-      const tile = createTile(`word-tile ${part}`, 'type here', true);
-      tile.addEventListener('dblclick', () => moveToCanvas(tile));
-      stagingArea.appendChild(tile);
-    });
-
-    document.getElementById('add-phrase-btn').addEventListener('click', () => {
-      const phrase = document.getElementById('phrase-type').value;
-      const tile = createTile('structure-node', phrase);
-      tile.addEventListener('dblclick', () => moveToCanvas(tile));
-      stagingArea.appendChild(tile);
-    });
-
-    document.getElementById('add-clause-btn').addEventListener('click', () => {
-      const clause = document.getElementById('clause-type').value;
-      const tile = createTile('structure-node', clause);
-      tile.addEventListener('dblclick', () => moveToCanvas(tile));
-      stagingArea.appendChild(tile);
-    });
-  </script>
+  <script src="script.js"></script>
 </body>
 </html>
