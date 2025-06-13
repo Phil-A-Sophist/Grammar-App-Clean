@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Grammar App</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 0;
+    }
+
+    h1 {
+      margin-top: 30px;
+    }
+
+    #controls {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 20px;
+      padding: 20px;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    select, button {
+      padding: 10px;
+      font-size: 16px;
+      margin: 5px;
+    }
+
+    #divider {
+      border-top: 3px solid #666;
+      margin: 20px auto;
+      width: 90%;
+    }
+
+    #staging-area {
+      min-height: 100px;
+      background-color: #f9f9f9;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    #canvas-area {
+      min-height: 500px;
+      background-color: #fff;
+      border-top: 3px solid #ccc;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .word-tile, .structure-node {
+      border: 2px solid #444;
+      padding: 10px;
+      border-radius: 8px;
+      min-width: 120px;
+      text-align: center;
+      cursor: grab;
+      user-select: none;
+      position: absolute;
+    }
+
+    .placeholder {
+      color: #999;
+    }
+
+    .noun { background-color: #FFD700; }
+    .verb { background-color: #ADFF2F; }
+    .adjective { background-color: #87CEFA; }
+    .adverb { background-color: #FFB6C1; }
+    .preposition { background-color: #D8BFD8; }
+    .conjunction { background-color: #FFA500; }
+    .pronoun { background-color: #98FB98; }
+    .interjection { background-color: #FF69B4; }
+    .relativizer { background-color: #40E0D0; }
+    .complementizer { background-color: #9370DB; }
+    .determiner { background-color: #F0E68C; }
+    .modal { background-color: #00CED1; }
+    .auxiliary { background-color: #E6E6FA; }
+
+    .structure-node {
+      background-color: #ddd;
+      font-weight: bold;
+      border-style: dashed;
+    }
+  </style>
+</head>
+<body>
+  <h1>Grammar App</h1>
+
+  <div id="controls">
+    <!-- Clause -->
+    <div class="control-group">
+      <label for="clause-type"><strong>Clause</strong></label>
+      <select id="clause-type">
+        <option value="S">S (Sentence)</option>
+        <option value="IC">IC (Independent Clause)</option>
+        <option value="DC">DC (Dependent Clause)</option>
+        <option value="RC">RC (Relative Clause)</option>
+        <option value="CC">CC (Complement Clause)</option>
+      </select>
+      <button id="add-clause-btn">Add Clause</button>
+    </div>
+
+    <!-- Phrase -->
+    <div class="control-group">
+      <label for="phrase-type"><strong>Phrase</strong></label>
+      <select id="phrase-type">
+        <option value="NP">NP (Noun Phrase)</option>
+        <option value="VP">VP (Verb Phrase)</option>
+        <option value="PP">PP (Prepositional Phrase)</option>
+        <option value="ADJP">ADJP (Adjective Phrase)</option>
+        <option value="ADVP">ADVP (Adverb Phrase)</option>
+      </select>
+      <button id="add-phrase-btn">Add Phrase</button>
+    </div>
+
+    <!-- Word -->
+    <div class="control-group">
+      <label for="part-of-speech"><strong>Word</strong></label>
+      <select id="part-of-speech">
+        <option value="noun">Noun</option>
+        <option value="verb">Verb</option>
+        <option value="adjective">Adjective</option>
+        <option value="adverb">Adverb</option>
+        <option value="preposition">Preposition</option>
+        <option value="conjunction">Conjunction</option>
+        <option value="pronoun">Pronoun</option>
+        <option value="interjection">Interjection</option>
+        <option value="relativizer">Relativizer</option>
+        <option value="complementizer">Complementizer</option>
+        <option value="determiner">Determiner</option>
+        <option value="modal">Modal</option>
+        <option value="auxiliary">Auxiliary Verb</option>
+      </select>
+      <button id="add-word-btn">Add Word</button>
+    </div>
+  </div>
+
+  <div id="divider"></div>
+
+  <div id="staging-area"></div>
+
+  <div id="canvas-area"></div>
+
+  <script>
+    const stagingArea = document.getElementById('staging-area');
+    const canvasArea = document.getElementById('canvas-area');
+    let zIndexCounter = 1;
+
+    function makeDraggable(tile) {
+      tile.addEventListener('mousedown', function (e) {
+        const offsetX = e.clientX - tile.offsetLeft;
+        const offsetY = e.clientY - tile.offsetTop;
+
+        tile.style.zIndex = zIndexCounter++;
+
+        function moveAt(mouseX, mouseY) {
+          tile.style.left = (mouseX - offsetX) + 'px';
+          tile.style.top = (mouseY - offsetY) + 'px';
+        }
+
+        function onMouseMove(e) {
+          moveAt(e.clientX, e.clientY);
+        }
+
+        document.addEventListener('mousemove', onMouseMove);
+
+        tile.onmouseup = function () {
+          document.removeEventListener('mousemove', onMouseMove);
+          tile.onmouseup = null;
+        };
+      });
+
+      tile.ondragstart = () => false; // disable built-in drag behavior
+    }
+
+    function createTile(className, text, editable = false) {
+      const tile = document.createElement('div');
+      tile.className = className;
+
+      if (editable) {
+        tile.contentEditable = true;
+        tile.innerText = 'type here';
+        tile.classList.add('placeholder');
+
+        tile.addEventListener('focus', () => {
+          if (tile.innerText === 'type here') {
+            tile.innerText = '';
+            tile.classList.remove('placeholder');
+          }
+        });
+
+        tile.addEventListener('blur', () => {
+          if (tile.innerText.trim() === '') {
+            tile.innerText = 'type here';
+            tile.classList.add('placeholder');
+          }
+        });
+      } else {
+        tile.innerText = text;
+      }
+
+      makeDraggable(tile);
+      return tile;
+    }
+
+    function moveToCanvas(tile) {
+      canvasArea.appendChild(tile);
+      tile.style.left = '20px';
+      tile.style.top = '20px';
+    }
+
+    document.getElementById('add-word-btn').addEventListener('click', () => {
+      const part = document.getElementById('part-of-speech').value;
+      const tile = createTile(`word-tile ${part}`, 'type here', true);
+      tile.addEventListener('dblclick', () => moveToCanvas(tile));
+      stagingArea.appendChild(tile);
+    });
+
+    document.getElementById('add-phrase-btn').addEventListener('click', () => {
+      const phrase = document.getElementById('phrase-type').value;
+      const tile = createTile('structure-node', phrase);
+      tile.addEventListener('dblclick', () => moveToCanvas(tile));
+      stagingArea.appendChild(tile);
+    });
+
+    document.getElementById('add-clause-btn').addEventListener('click', () => {
+      const clause = document.getElementById('clause-type').value;
+      const tile = createTile('structure-node', clause);
+      tile.addEventListener('dblclick', () => moveToCanvas(tile));
+      stagingArea.appendChild(tile);
+    });
+  </script>
+</body>
+</html>

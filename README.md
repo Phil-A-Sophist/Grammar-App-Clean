@@ -1,2 +1,2 @@
-# Grammar-App-Clean
-
+# Grammar-App
+Sentence Diagramming Tool
