@@ -1,210 +1,469 @@
-const canvasArea = document.getElementById('canvas-area');
-const connectionLayer = document.getElementById('connection-layer');
-const stagingArea = document.getElementById('staging-area');
-let zIndexCounter = 1;
-const connections = [];
-const childMap = new Map();
-let selectedTile = null;
+const canvas = new fabric.Canvas('diagram-canvas');
+let idCounter = 0;
+const connections = {};
 
-function createSVGLine(x1, y1, x2, y2) {
-  const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-  line.setAttribute("x1", x1);
-  line.setAttribute("y1", y1);
-  line.setAttribute("x2", x2);
-  line.setAttribute("y2", y2);
-  line.setAttribute("stroke", "black");
-  line.setAttribute("stroke-width", "2");
-  line.setAttribute("class", "connector-line");
+// Color mapping for different parts of speech
+const posColors = {
+  // WARM COLORS - Noun-related elements (reds, yellows, oranges)
+  noun: '#E74C3C',           // Red
+  determiner: '#F39C12',     // Orange
+  adjective: '#F1C40F',      // Yellow
+  pronoun: '#E67E22',        // Dark orange
+  
+  // COOL COLORS - Verb-related elements (greens, blues, purples)
+  verb: '#27AE60',           // Green
+  adverb: '#3498DB',         // Blue
+  modal: '#8E44AD',          // Purple
+  auxiliary: '#16A085',      // Teal
+  
+  // NEUTRAL - Function words
+  preposition: '#95A5A6',    // Gray
+  conjunction: '#34495E',    // Dark gray
+  interjection: '#E91E63',   // Pink
+  relativizer: '#9B59B6',    // Light purple
+  complementizer: '#2C3E50'  // Dark blue-gray
+};
 
-  line.addEventListener("click", () => {
-    line.remove();
-    const index = connections.findIndex(c => c.line === line);
-    if (index !== -1) {
-      const conn = connections.splice(index, 1)[0];
-      if (childMap.has(conn.from)) {
-        const updated = childMap.get(conn.from).filter(c => c !== conn.to);
-        if (updated.length) {
-          childMap.set(conn.from, updated);
-        } else {
-          childMap.delete(conn.from);
-        }
-      }
+// Colors for structural elements - phrases match their headwords but lighter
+const structureColors = {
+  clause: '#FFFFFF',         // White (changed from gray)
+  phrase: '#FFFFFF',         // Default white, will be overridden based on type
+  
+  // Phrase colors (lighter versions of their headwords)
+  'NP': '#F1948A',          // Light red (lighter noun)
+  'VP': '#58D68D',          // Light green (lighter verb)
+  'PP': '#BDC3C7',          // Light gray (preposition-based)
+  'ADJP': '#F7DC6F',        // Light yellow (lighter adjective)
+  'ADVP': '#85C1E9'         // Light blue (lighter adverb)
+};
+
+function createTile(text, color, editable = false, partOfSpeech = null) {
+  const rect = new fabric.Rect({
+    width: 120,
+    height: editable ? 60 : 50, // Taller for word boxes
+    fill: color,
+    rx: 8,
+    ry: 8,
+    stroke: color === '#FFFFFF' ? '#333' : 'rgba(0,0,0,0.2)',
+    strokeWidth: color === '#FFFFFF' ? 2 : 1
+  });
+
+  let label;
+  
+  if (editable && partOfSpeech) {
+    // Create two-row layout for word boxes
+    const posLabel = new fabric.Text(partOfSpeech.toUpperCase(), {
+      fontSize: 12,
+      fontFamily: 'Arial, sans-serif',
+      fontWeight: 'bold',
+      fill: color === '#FFFFFF' ? '#333' : '#000',
+      textAlign: 'center'
+    });
+    
+    const wordLabel = new fabric.Text('Ctrl+Click', {
+      fontSize: 14,
+      fontFamily: 'Arial, sans-serif',
+      fontWeight: 'normal',
+      fill: color === '#FFFFFF' ? '#666' : '#333',
+      textAlign: 'center',
+      fontStyle: 'italic'
+    });
+    
+    // Position the labels
+    posLabel.set({
+      left: rect.width / 2,
+      top: 15,
+      originX: 'center',
+      originY: 'center'
+    });
+    
+    wordLabel.set({
+      left: rect.width / 2,
+      top: 40,
+      originX: 'center',
+      originY: 'center'
+    });
+    
+    label = new fabric.Group([posLabel, wordLabel]);
+  } else {
+    // Single label for phrases and clauses
+    label = new fabric.Text(text, {
+      fontSize: 16,
+      fontFamily: 'Arial, sans-serif',
+      fontWeight: 'bold',
+      fill: color === '#FFFFFF' ? '#333' : '#000',
+      textAlign: 'center'
+    });
+
+    // Center the text within the rectangle
+    label.set({
+      left: rect.width / 2,
+      top: rect.height / 2,
+      originX: 'center',
+      originY: 'center'
+    });
+  }
+
+  const group = new fabric.Group([rect, label], {
+    left: 100 + idCounter * 10,
+    top: 50 + idCounter * 10,
+    hasControls: false,
+    lockScalingX: true,
+    lockScalingY: true
+  });
+
+  group.customId = `tile-${idCounter++}`;
+  group.isEditable = editable;
+  group.partOfSpeech = partOfSpeech; // Store the part of speech
+  
+  // Add event handlers
+  group.on('moving', () => {
+    moveChildrenWithParent(group);
+    updateConnections();
+    handleChildReordering(group);
+  });
+
+  group.on('mouseup', () => {
+    finalizeChildReordering(group);
+    // Ensure children follow after any position changes
+    moveChildrenWithParent(group);
+    updateConnections();
+  });
+
+  // Handle double left-click for connection pairing (all tiles)
+  group.on('mousedblclick', (e) => {
+    if (e.e.button === 0) { // Left double-click
+      handleTileDoubleClick(group);
     }
   });
 
-  return line;
+  // Handle Ctrl+left click for editing editable tiles
+  if (editable) {
+    group.on('mousedown', (e) => {
+      if (e.e.button === 0 && e.e.ctrlKey) { // Ctrl+left click
+        e.e.preventDefault(); // Prevent any default behavior
+        editTile(group);
+      }
+    });
+  }
+
+  canvas.add(group);
+  return group;
 }
 
-function getTileCenter(tile) {
-  const box = tile.getBoundingClientRect();
-  const canvasBox = canvasArea.getBoundingClientRect();
-  return {
-    x: box.left + box.width / 2 - canvasBox.left,
-    y: box.top + box.height / 2 - canvasBox.top
-  };
+let selectedTile = null;
+
+function handleTileDoubleClick(tile) {
+  if (!selectedTile) {
+    // First tile selected - highlight it
+    selectedTile = tile;
+    tile.item(0).set({ stroke: '#FF4444', strokeWidth: 4 });
+    canvas.requestRenderAll();
+  } else if (selectedTile === tile) {
+    // Same tile clicked - deselect
+    tile.item(0).set({ 
+      stroke: tile.item(0).fill === '#FFFFFF' ? '#333' : 'rgba(0,0,0,0.2)', 
+      strokeWidth: tile.item(0).fill === '#FFFFFF' ? 2 : 1 
+    });
+    selectedTile = null;
+    canvas.requestRenderAll();
+  } else {
+    // Two different tiles - connect them
+    connectTiles(selectedTile, tile);
+    // Reset both tiles' appearance
+    selectedTile.item(0).set({ 
+      stroke: selectedTile.item(0).fill === '#FFFFFF' ? '#333' : 'rgba(0,0,0,0.2)', 
+      strokeWidth: selectedTile.item(0).fill === '#FFFFFF' ? 2 : 1 
+    });
+    selectedTile = null;
+    canvas.requestRenderAll();
+  }
 }
 
-function updateConnections(tile) {
-  connections.forEach(c => {
-    if (c.from === tile || c.to === tile) {
-      const from = getTileCenter(c.from);
-      const to = getTileCenter(c.to);
-      c.line.setAttribute("x1", from.x);
-      c.line.setAttribute("y1", from.y);
-      c.line.setAttribute("x2", to.x);
-      c.line.setAttribute("y2", to.y);
+// Remove the old handleTileClick function
+
+function editTile(tile) {
+  const isWordBox = tile.isEditable && tile.partOfSpeech;
+  
+  if (isWordBox) {
+    // For word boxes, edit the bottom text
+    const labelGroup = tile.item(1);
+    const wordLabel = labelGroup.item(1); // Second item is the word text
+    const currentText = wordLabel.text;
+    
+    const newText = prompt('Enter word:', currentText === 'Ctrl+Click' ? '' : currentText);
+    if (newText !== null) {
+      wordLabel.set({
+        text: newText || 'Ctrl+Click',
+        fontStyle: newText ? 'normal' : 'italic',
+        fill: newText ? (tile.item(0).fill === '#FFFFFF' ? '#333' : '#000') : (tile.item(0).fill === '#FFFFFF' ? '#666' : '#333')
+      });
+      canvas.requestRenderAll();
+      
+      // Deselect the tile after editing
+      if (selectedTile === tile) {
+        tile.item(0).set({ 
+          stroke: tile.item(0).fill === '#FFFFFF' ? '#333' : 'rgba(0,0,0,0.2)', 
+          strokeWidth: tile.item(0).fill === '#FFFFFF' ? 2 : 1 
+        });
+        selectedTile = null;
+        canvas.requestRenderAll();
+      }
     }
+  } else {
+    // For regular tiles, edit the main text
+    const textObj = tile.item(1);
+    const currentText = textObj.text;
+    
+    const newText = prompt('Edit text:', currentText === 'type here' ? '' : currentText);
+    if (newText !== null) {
+      textObj.set('text', newText || 'type here');
+      canvas.requestRenderAll();
+    }
+  }
+}
+
+function connectTiles(tile1, tile2) {
+  // Determine parent and child based on vertical position (lowest = child)
+  const parent = tile1.top <= tile2.top ? tile1 : tile2;
+  const child = tile1.top <= tile2.top ? tile2 : tile1;
+  
+  const parentId = parent.customId;
+  
+  if (!connections[parentId]) {
+    connections[parentId] = [];
+  }
+  
+  // Avoid duplicate connections and limit to 6 children
+  if (!connections[parentId].includes(child) && connections[parentId].length < 6) {
+    connections[parentId].push(child);
+    layoutChildren(parent);
+    updateConnections();
+  }
+}
+
+function moveChildrenWithParent(parentTile) {
+  const children = connections[parentTile.customId];
+  if (!children || children.length === 0) return;
+
+  // Calculate the offset from the parent's expected child layout
+  const spacing = 140;
+  const count = children.length;
+  const totalWidth = spacing * (count - 1);
+  const expectedStartX = parentTile.left - totalWidth / 2;
+  const expectedY = parentTile.top + 100;
+
+  // Move each child to maintain relative positioning
+  children.forEach((child, i) => {
+    const expectedX = expectedStartX + i * spacing;
+    child.set({
+      left: expectedX,
+      top: expectedY
+    });
+    child.setCoords();
+    
+    // Recursively move any children of this child
+    moveChildrenWithParent(child);
   });
 }
 
 function layoutChildren(parent) {
-  const children = childMap.get(parent);
+  const children = connections[parent.customId];
   if (!children || children.length === 0) return;
-
-  const parentBox = parent.getBoundingClientRect();
-  const canvasBox = canvasArea.getBoundingClientRect();
-  const parentX = parentBox.left - canvasBox.left;
-  const parentY = parentBox.top - canvasBox.top;
-  const centerX = parentX + parentBox.width / 2;
 
   const spacing = 140;
   const count = children.length;
   const totalWidth = spacing * (count - 1);
-  const startX = centerX - totalWidth / 2;
+  const startX = parent.left - totalWidth / 2;
+  const y = parent.top + 100;
 
   children.forEach((child, i) => {
-    child.style.left = `${startX + i * spacing}px`;
-    child.style.top = `${parentY + 100}px`;
-    updateConnections(child);
+    child.set({
+      left: startX + i * spacing,
+      top: y
+    });
+    child.setCoords();
+    
+    // Recursively layout and move children of this child
+    layoutChildren(child);
+    moveChildrenWithParent(child);
   });
 }
 
-function connectTiles(fromTile, toTile) {
-  const from = getTileCenter(fromTile);
-  const to = getTileCenter(toTile);
-
-  const line = createSVGLine(from.x, from.y, to.x, to.y);
-  connectionLayer.appendChild(line);
-  connections.push({ from: fromTile, to: toTile, line });
-
-  if (to.y > from.y) {
-    if (!childMap.has(fromTile)) childMap.set(fromTile, []);
-    const list = childMap.get(fromTile);
-    if (!list.includes(toTile) && list.length < 6) {
-      list.push(toTile);
-      layoutChildren(fromTile);
+function handleChildReordering(draggedTile) {
+  // Find if this tile is a child of any parent
+  let parentTile = null;
+  let parentId = null;
+  
+  for (const [id, children] of Object.entries(connections)) {
+    if (children.includes(draggedTile)) {
+      parentId = id;
+      parentTile = canvas.getObjects().find(obj => obj.customId === id);
+      break;
+    }
+  }
+  
+  if (!parentTile) return; // Not a child of anyone
+  
+  const children = connections[parentId];
+  const draggedIndex = children.indexOf(draggedTile);
+  
+  // Check if dragged horizontally past other children
+  for (let i = 0; i < children.length; i++) {
+    if (i === draggedIndex) continue;
+    
+    const otherChild = children[i];
+    const draggedX = draggedTile.left;
+    const otherX = otherChild.left;
+    
+    // If dragged past another child horizontally
+    if ((draggedIndex < i && draggedX > otherX) || (draggedIndex > i && draggedX < otherX)) {
+      // Reorder the array
+      children.splice(draggedIndex, 1);
+      const newIndex = draggedX < otherX ? i - (draggedIndex < i ? 1 : 0) : i + (draggedIndex > i ? 1 : 0);
+      children.splice(newIndex, 0, draggedTile);
+      break;
     }
   }
 }
 
-function makeDraggable(tile) {
-  tile.addEventListener('mousedown', function (e) {
-    const offsetX = e.clientX - tile.offsetLeft;
-    const offsetY = e.clientY - tile.offsetTop;
-    tile.style.zIndex = zIndexCounter++;
-
-    function moveAt(mouseX, mouseY) {
-      tile.style.left = (mouseX - offsetX) + 'px';
-      tile.style.top = (mouseY - offsetY) + 'px';
-      updateConnections(tile);
-      layoutChildren(tile);
+function finalizeChildReordering(draggedTile) {
+  // Find if this tile is a child and re-layout all children
+  for (const [id, children] of Object.entries(connections)) {
+    if (children.includes(draggedTile)) {
+      const parentTile = canvas.getObjects().find(obj => obj.customId === id);
+      if (parentTile) {
+        layoutChildren(parentTile);
+        moveChildrenWithParent(parentTile);
+        updateConnections();
+      }
+      break;
     }
-
-    function onMouseMove(e) {
-      moveAt(e.clientX, e.clientY);
-    }
-
-    document.addEventListener('mousemove', onMouseMove);
-    tile.onmouseup = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      tile.onmouseup = null;
-    };
-  });
-
-  tile.ondragstart = () => false;
+  }
 }
 
-function attachConnectionHandler(tile) {
-  tile.addEventListener('click', () => {
-    if (!selectedTile) {
-      selectedTile = tile;
-      tile.classList.add('selected');
-    } else if (selectedTile === tile) {
-      tile.classList.remove('selected');
-      selectedTile = null;
+function updateConnections() {
+  // Remove all existing lines
+  const lines = canvas.getObjects('line');
+  lines.forEach(line => canvas.remove(line));
+
+  // Redraw all connections
+  Object.entries(connections).forEach(([parentId, children]) => {
+    const parent = canvas.getObjects().find(obj => obj.customId === parentId);
+    if (!parent) return;
+
+    const parentCenter = parent.getCenterPoint();
+
+    children.forEach(child => {
+      const childCenter = child.getCenterPoint();
+      const line = new fabric.Line(
+        [parentCenter.x, parentCenter.y, childCenter.x, childCenter.y],
+        {
+          stroke: '#000',
+          strokeWidth: 4,
+          selectable: false,
+          evented: true,
+          customType: 'connection-line'
+        }
+      );
+
+      // Add click handler to remove connections
+      line.on('mousedown', () => {
+        removeConnection(parent, child, line);
+      });
+
+      canvas.add(line);
+      canvas.sendToBack(line);
+    });
+  });
+}
+
+function removeConnection(parent, child, line) {
+  canvas.remove(line);
+  const parentId = parent.customId;
+  if (connections[parentId]) {
+    connections[parentId] = connections[parentId].filter(c => c !== child);
+    if (connections[parentId].length === 0) {
+      delete connections[parentId];
     } else {
-      connectTiles(selectedTile, tile);
-      selectedTile.classList.remove('selected');
-      selectedTile = null;
+      layoutChildren(parent);
+      updateConnections();
     }
-  });
-}
-
-function createTile(className, text, editable = false) {
-  const tile = document.createElement('div');
-  tile.className = className;
-
-  if (editable) {
-    tile.contentEditable = true;
-    tile.innerText = 'type here';
-    tile.classList.add('placeholder');
-
-    tile.addEventListener('focus', () => {
-      if (tile.innerText === 'type here') {
-        tile.innerText = '';
-        tile.classList.remove('placeholder');
-      }
-    });
-
-    tile.addEventListener('blur', () => {
-      if (tile.innerText.trim() === '') {
-        tile.innerText = 'type here';
-        tile.classList.add('placeholder');
-      }
-    });
-  } else {
-    tile.innerText = text;
   }
-
-  makeDraggable(tile);
-  return tile;
 }
 
-function moveToCanvas(tile, e) {
-  const tileBox = tile.getBoundingClientRect();
-  const canvasBox = canvasArea.getBoundingClientRect();
-  const x = tileBox.left - canvasBox.left;
-  const y = tileBox.top - canvasBox.top;
-
-  canvasArea.appendChild(tile);
-  tile.style.left = `${x}px`;
-  tile.style.top = `${y}px`;
-
-  attachConnectionHandler(tile);
-
-  // Simulate click for connection selection
-  setTimeout(() => {
-    tile.click();
-  }, 0);
-}
-
-document.getElementById('add-word-btn').addEventListener('click', () => {
-  const part = document.getElementById('part-of-speech').value;
-  const tile = createTile(`word-tile ${part}`, 'type here', true);
-  tile.addEventListener('dblclick', (e) => moveToCanvas(tile, e));
-  stagingArea.appendChild(tile);
-});
-
-document.getElementById('add-phrase-btn').addEventListener('click', () => {
-  const phrase = document.getElementById('phrase-type').value;
-  const tile = createTile('structure-node', phrase);
-  tile.addEventListener('dblclick', (e) => moveToCanvas(tile, e));
-  stagingArea.appendChild(tile);
-});
-
-document.getElementById('add-clause-btn').addEventListener('click', () => {
-  const clause = document.getElementById('clause-type').value;
-  const tile = createTile('structure-node', clause);
-  tile.addEventListener('dblclick', (e) => moveToCanvas(tile, e));
-  stagingArea.appendChild(tile);
+// Remove the old event listeners and add drag-and-drop functionality
+document.addEventListener('DOMContentLoaded', () => {
+  const paletteTiles = document.querySelectorAll('.palette-tile');
+  const canvasWrapper = document.getElementById('canvas-wrapper');
+  
+  paletteTiles.forEach(tile => {
+    tile.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startDrag(tile, e);
+    });
+  });
+  
+  function startDrag(sourceTile, startEvent) {
+    const type = sourceTile.dataset.type;
+    const value = sourceTile.dataset.value;
+    
+    // Create a visual clone for dragging
+    const dragClone = sourceTile.cloneNode(true);
+    dragClone.style.position = 'fixed';
+    dragClone.style.pointerEvents = 'none';
+    dragClone.style.zIndex = '10000';
+    dragClone.style.transform = 'scale(1.2)';
+    dragClone.style.opacity = '0.8';
+    document.body.appendChild(dragClone);
+    
+    // Position the clone at the mouse
+    function updateClonePosition(e) {
+      dragClone.style.left = (e.clientX - 40) + 'px';
+      dragClone.style.top = (e.clientY - 17) + 'px';
+    }
+    
+    updateClonePosition(startEvent);
+    
+    function onMouseMove(e) {
+      updateClonePosition(e);
+    }
+    
+    function onMouseUp(e) {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      
+      // Check if dropped on canvas
+      const canvasRect = canvasWrapper.getBoundingClientRect();
+      if (e.clientX >= canvasRect.left && e.clientX <= canvasRect.right &&
+          e.clientY >= canvasRect.top && e.clientY <= canvasRect.bottom) {
+        
+        // Calculate position relative to canvas
+        const canvasX = e.clientX - canvasRect.left;
+        const canvasY = e.clientY - canvasRect.top;
+        
+        // Create the appropriate tile
+        if (type === 'word') {
+          const color = posColors[value] || '#E0E0E0';
+          const newTile = createTile('word', color, true, value);
+          newTile.set({ left: canvasX - 60, top: canvasY - 30 });
+        } else if (type === 'phrase') {
+          const color = structureColors[value] || structureColors.phrase;
+          const newTile = createTile(value, color);
+          newTile.set({ left: canvasX - 60, top: canvasY - 25 });
+        } else if (type === 'clause') {
+          const newTile = createTile(value, structureColors.clause);
+          newTile.set({ left: canvasX - 60, top: canvasY - 25 });
+        }
+        
+        canvas.requestRenderAll();
+      }
+      
+      // Remove the clone
+      document.body.removeChild(dragClone);
+    }
+    
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
 });

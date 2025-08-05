@@ -9,165 +9,152 @@
       text-align: center;
       margin: 0;
       padding: 0;
+      background-color: #f5f5f5;
     }
 
     h1 {
-      margin-top: 30px;
+      margin: 20px 0;
+      color: #333;
     }
 
-    #controls {
-      display: flex;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 20px;
-      padding: 20px;
+    .palette-section {
+      background-color: #fff;
+      border: 2px solid #ddd;
+      margin: 10px;
+      padding: 15px;
+      border-radius: 8px;
     }
 
-    .control-group {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+    .palette-title {
+      font-weight: bold;
+      margin-bottom: 10px;
+      font-size: 14px;
+      color: #666;
     }
 
-    select, button {
-      padding: 10px;
-      font-size: 16px;
-      margin: 5px;
-    }
-
-    #divider {
-      border-top: 3px solid #666;
-      margin: 20px auto;
-      width: 90%;
-    }
-
-    #staging-area {
-      min-height: 100px;
-      background-color: #f9f9f9;
-      padding: 20px;
+    .palette-row {
       display: flex;
       justify-content: center;
       flex-wrap: wrap;
       gap: 10px;
+      margin: 5px 0;
     }
 
-    #canvas-area {
-      min-height: 500px;
-      background-color: #fff;
-      border-top: 3px solid #ccc;
+    .palette-tile {
+      width: 80px;
+      height: 35px;
+      border-radius: 6px;
+      border: 2px solid rgba(0,0,0,0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: grab;
+      user-select: none;
+      transition: transform 0.2s;
+    }
+
+    .palette-tile:hover {
+      transform: scale(1.1);
+    }
+
+    .palette-tile:active {
+      cursor: grabbing;
+    }
+
+    .palette-tile.white-bg {
+      border: 2px solid #333;
+      color: #333;
+    }
+
+    #canvas-wrapper {
       position: relative;
+      background-color: #fff;
+      border: 3px solid #333;
+      height: 400px;
+      margin: 20px;
+      border-radius: 8px;
       overflow: hidden;
     }
 
-    #connection-layer {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      pointer-events: none;
-      z-index: 1;
+    canvas {
+      border: none;
     }
 
-    .word-tile, .structure-node {
-      border: 2px solid #444;
-      padding: 10px;
-      border-radius: 8px;
-      min-width: 120px;
-      text-align: center;
-      cursor: grab;
-      user-select: none;
-      position: absolute;
-      z-index: 2;
+    .top-palettes {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
     }
 
-    .placeholder {
-      color: #999;
-    }
-
-    .selected {
-      outline: 3px solid black;
-    }
-
-    .noun { background-color: #FFD700; }
-    .verb { background-color: #ADFF2F; }
-    .adjective { background-color: #87CEFA; }
-    .adverb { background-color: #FFB6C1; }
-    .preposition { background-color: #D8BFD8; }
-    .conjunction { background-color: #FFA500; }
-    .pronoun { background-color: #98FB98; }
-    .interjection { background-color: #FF69B4; }
-    .relativizer { background-color: #40E0D0; }
-    .complementizer { background-color: #9370DB; }
-    .determiner { background-color: #F0E68C; }
-    .modal { background-color: #00CED1; }
-    .auxiliary { background-color: #E6E6FA; }
-
-    .structure-node {
-      background-color: #ddd;
-      font-weight: bold;
-      border-style: dashed;
+    .bottom-palettes {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
     }
   </style>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.2.4/fabric.min.js"></script>
 </head>
 <body>
   <h1>Grammar App</h1>
 
-  <div id="controls">
-    <!-- Clause -->
-    <div class="control-group">
-      <label for="clause-type"><strong>Clause</strong></label>
-      <select id="clause-type">
-        <option value="S">S (Sentence)</option>
-        <option value="IC">IC (Independent Clause)</option>
-        <option value="DC">DC (Dependent Clause)</option>
-        <option value="RC">RC (Relative Clause)</option>
-        <option value="CC">CC (Complement Clause)</option>
-      </select>
-      <button id="add-clause-btn">Add Clause</button>
+  <div class="top-palettes">
+    <div class="palette-section">
+      <div class="palette-title">Clauses</div>
+      <div class="palette-row">
+        <div class="palette-tile white-bg" data-type="clause" data-value="S">S</div>
+        <div class="palette-tile white-bg" data-type="clause" data-value="IC">IC</div>
+        <div class="palette-tile white-bg" data-type="clause" data-value="DC">DC</div>
+        <div class="palette-tile white-bg" data-type="clause" data-value="RC">RC</div>
+        <div class="palette-tile white-bg" data-type="clause" data-value="CC">CC</div>
+      </div>
     </div>
 
-    <!-- Phrase -->
-    <div class="control-group">
-      <label for="phrase-type"><strong>Phrase</strong></label>
-      <select id="phrase-type">
-        <option value="NP">NP (Noun Phrase)</option>
-        <option value="VP">VP (Verb Phrase)</option>
-        <option value="PP">PP (Prepositional Phrase)</option>
-        <option value="ADJP">ADJP (Adjective Phrase)</option>
-        <option value="ADVP">ADVP (Adverb Phrase)</option>
-      </select>
-      <button id="add-phrase-btn">Add Phrase</button>
-    </div>
-
-    <!-- Word -->
-    <div class="control-group">
-      <label for="part-of-speech"><strong>Word</strong></label>
-      <select id="part-of-speech">
-        <option value="noun">Noun</option>
-        <option value="verb">Verb</option>
-        <option value="adjective">Adjective</option>
-        <option value="adverb">Adverb</option>
-        <option value="preposition">Preposition</option>
-        <option value="conjunction">Conjunction</option>
-        <option value="pronoun">Pronoun</option>
-        <option value="interjection">Interjection</option>
-        <option value="relativizer">Relativizer</option>
-        <option value="complementizer">Complementizer</option>
-        <option value="determiner">Determiner</option>
-        <option value="modal">Modal</option>
-        <option value="auxiliary">Auxiliary Verb</option>
-      </select>
-      <button id="add-word-btn">Add Word</button>
+    <div class="palette-section">
+      <div class="palette-title">Phrases</div>
+      <div class="palette-row">
+        <div class="palette-tile" data-type="phrase" data-value="NP" style="background-color: #F1948A; color: #000;">NP</div>
+        <div class="palette-tile" data-type="phrase" data-value="VP" style="background-color: #58D68D; color: #000;">VP</div>
+        <div class="palette-tile" data-type="phrase" data-value="PP" style="background-color: #BDC3C7; color: #000;">PP</div>
+        <div class="palette-tile" data-type="phrase" data-value="ADJP" style="background-color: #F7DC6F; color: #000;">ADJP</div>
+        <div class="palette-tile" data-type="phrase" data-value="ADVP" style="background-color: #85C1E9; color: #000;">ADVP</div>
+      </div>
     </div>
   </div>
 
-  <div id="divider"></div>
+  <div id="canvas-wrapper">
+    <canvas id="diagram-canvas" width="1200" height="400"></canvas>
+  </div>
 
-  <div id="staging-area"></div>
+  <div class="bottom-palettes">
+    <div class="palette-section">
+      <div class="palette-title">Open Class Words</div>
+      <div class="palette-row">
+        <div class="palette-tile" data-type="word" data-value="noun" style="background-color: #E74C3C; color: #fff;">NOUN</div>
+        <div class="palette-tile" data-type="word" data-value="verb" style="background-color: #27AE60; color: #fff;">VERB</div>
+        <div class="palette-tile" data-type="word" data-value="adjective" style="background-color: #F1C40F; color: #000;">ADJ</div>
+        <div class="palette-tile" data-type="word" data-value="adverb" style="background-color: #3498DB; color: #fff;">ADV</div>
+      </div>
+    </div>
 
-  <div id="canvas-area">
-    <svg id="connection-layer"></svg>
+    <div class="palette-section">
+      <div class="palette-title">Closed Class Words</div>
+      <div class="palette-row">
+        <div class="palette-tile" data-type="word" data-value="determiner" style="background-color: #F39C12; color: #fff;">DET</div>
+        <div class="palette-tile" data-type="word" data-value="pronoun" style="background-color: #E67E22; color: #fff;">PRON</div>
+        <div class="palette-tile" data-type="word" data-value="preposition" style="background-color: #95A5A6; color: #fff;">PREP</div>
+        <div class="palette-tile" data-type="word" data-value="conjunction" style="background-color: #34495E; color: #fff;">CONJ</div>
+      </div>
+      <div class="palette-row">
+        <div class="palette-tile" data-type="word" data-value="modal" style="background-color: #8E44AD; color: #fff;">MOD</div>
+        <div class="palette-tile" data-type="word" data-value="auxiliary" style="background-color: #16A085; color: #fff;">AUX</div>
+        <div class="palette-tile" data-type="word" data-value="interjection" style="background-color: #E91E63; color: #fff;">INTJ</div>
+        <div class="palette-tile" data-type="word" data-value="relativizer" style="background-color: #9B59B6; color: #fff;">REL</div>
+        <div class="palette-tile" data-type="word" data-value="complementizer" style="background-color: #2C3E50; color: #fff;">COMP</div>
+      </div>
+    </div>
   </div>
 
   <script src="script.js"></script>
