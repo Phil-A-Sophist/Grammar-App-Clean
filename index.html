@@ -53,6 +53,7 @@
       cursor: grab;
       user-select: none;
       transition: transform 0.2s;
+      draggable: true;
     }
 
     .palette-tile:hover {
@@ -76,6 +77,52 @@
       margin: 20px;
       border-radius: 8px;
       overflow: hidden;
+    }
+
+    .zoom-controls {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 10;
+      display: flex;
+      gap: 5px;
+      align-items: center;
+    }
+
+    .zoom-controls button {
+      height: 30px;
+      border: 1px solid #333;
+      background: white;
+      cursor: pointer;
+      border-radius: 4px;
+      font-weight: bold;
+      font-size: 14px;
+      padding: 0 8px;
+    }
+
+    #zoom-in, #zoom-out {
+      width: 30px;
+    }
+
+    #zoom-reset {
+      min-width: fit-content;
+    }
+
+    .zoom-controls button:hover {
+      background: #f0f0f0;
+    }
+
+    .zoom-info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      font-size: 11px;
+      color: #666;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 5px 8px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
     }
 
     canvas {
@@ -104,27 +151,33 @@
     <div class="palette-section">
       <div class="palette-title">Clauses</div>
       <div class="palette-row">
-        <div class="palette-tile white-bg" data-type="clause" data-value="S">S</div>
-        <div class="palette-tile white-bg" data-type="clause" data-value="IC">IC</div>
-        <div class="palette-tile white-bg" data-type="clause" data-value="DC">DC</div>
-        <div class="palette-tile white-bg" data-type="clause" data-value="RC">RC</div>
-        <div class="palette-tile white-bg" data-type="clause" data-value="CC">CC</div>
+        <div class="palette-tile white-bg" data-type="clause" data-value="S" draggable="true">S</div>
+        <div class="palette-tile white-bg" data-type="clause" data-value="IC" draggable="true">IC</div>
+        <div class="palette-tile white-bg" data-type="clause" data-value="DC" draggable="true">DC</div>
+        <div class="palette-tile white-bg" data-type="clause" data-value="RC" draggable="true">RC</div>
+        <div class="palette-tile white-bg" data-type="clause" data-value="CC" draggable="true">CC</div>
       </div>
     </div>
 
     <div class="palette-section">
       <div class="palette-title">Phrases</div>
       <div class="palette-row">
-        <div class="palette-tile" data-type="phrase" data-value="NP" style="background-color: #F1948A; color: #000;">NP</div>
-        <div class="palette-tile" data-type="phrase" data-value="VP" style="background-color: #58D68D; color: #000;">VP</div>
-        <div class="palette-tile" data-type="phrase" data-value="PP" style="background-color: #BDC3C7; color: #000;">PP</div>
-        <div class="palette-tile" data-type="phrase" data-value="ADJP" style="background-color: #F7DC6F; color: #000;">ADJP</div>
-        <div class="palette-tile" data-type="phrase" data-value="ADVP" style="background-color: #85C1E9; color: #000;">ADVP</div>
+        <div class="palette-tile" data-type="phrase" data-value="NP" style="background-color: #F1948A; color: #000;" draggable="true">NP</div>
+        <div class="palette-tile" data-type="phrase" data-value="VP" style="background-color: #58D68D; color: #000;" draggable="true">VP</div>
+        <div class="palette-tile" data-type="phrase" data-value="PP" style="background-color: #BDC3C7; color: #000;" draggable="true">PP</div>
+        <div class="palette-tile" data-type="phrase" data-value="ADJP" style="background-color: #F7DC6F; color: #000;" draggable="true">ADJP</div>
+        <div class="palette-tile" data-type="phrase" data-value="ADVP" style="background-color: #85C1E9; color: #000;" draggable="true">ADVP</div>
       </div>
     </div>
   </div>
 
   <div id="canvas-wrapper">
+    <div class="zoom-info">Double-click to select/connect • Ctrl+click to edit text • Delete key to remove</div>
+    <div class="zoom-controls">
+      <button id="zoom-in">+</button>
+      <button id="zoom-out">-</button>
+      <button id="zoom-reset">Reset</button>
+    </div>
     <canvas id="diagram-canvas" width="1200" height="400"></canvas>
   </div>
 
@@ -132,31 +185,62 @@
     <div class="palette-section">
       <div class="palette-title">Open Class Words</div>
       <div class="palette-row">
-        <div class="palette-tile" data-type="word" data-value="noun" style="background-color: #E74C3C; color: #fff;">NOUN</div>
-        <div class="palette-tile" data-type="word" data-value="verb" style="background-color: #27AE60; color: #fff;">VERB</div>
-        <div class="palette-tile" data-type="word" data-value="adjective" style="background-color: #F1C40F; color: #000;">ADJ</div>
-        <div class="palette-tile" data-type="word" data-value="adverb" style="background-color: #3498DB; color: #fff;">ADV</div>
+        <div class="palette-tile" data-type="word" data-value="noun" style="background-color: #E74C3C; color: #fff;" draggable="true">NOUN</div>
+        <div class="palette-tile" data-type="word" data-value="verb" style="background-color: #27AE60; color: #fff;" draggable="true">VERB</div>
+        <div class="palette-tile" data-type="word" data-value="adjective" style="background-color: #F1C40F; color: #000;" draggable="true">ADJ</div>
+        <div class="palette-tile" data-type="word" data-value="adverb" style="background-color: #3498DB; color: #fff;" draggable="true">ADV</div>
       </div>
     </div>
 
     <div class="palette-section">
       <div class="palette-title">Closed Class Words</div>
       <div class="palette-row">
-        <div class="palette-tile" data-type="word" data-value="determiner" style="background-color: #F39C12; color: #fff;">DET</div>
-        <div class="palette-tile" data-type="word" data-value="pronoun" style="background-color: #E67E22; color: #fff;">PRON</div>
-        <div class="palette-tile" data-type="word" data-value="preposition" style="background-color: #95A5A6; color: #fff;">PREP</div>
-        <div class="palette-tile" data-type="word" data-value="conjunction" style="background-color: #34495E; color: #fff;">CONJ</div>
+        <div class="palette-tile" data-type="word" data-value="determiner" style="background-color: #F39C12; color: #fff;" draggable="true">DET</div>
+        <div class="palette-tile" data-type="word" data-value="pronoun" style="background-color: #E67E22; color: #fff;" draggable="true">PRON</div>
+        <div class="palette-tile" data-type="word" data-value="preposition" style="background-color: #95A5A6; color: #fff;" draggable="true">PREP</div>
+        <div class="palette-tile" data-type="word" data-value="conjunction" style="background-color: #34495E; color: #fff;" draggable="true">CONJ</div>
       </div>
       <div class="palette-row">
-        <div class="palette-tile" data-type="word" data-value="modal" style="background-color: #8E44AD; color: #fff;">MOD</div>
-        <div class="palette-tile" data-type="word" data-value="auxiliary" style="background-color: #16A085; color: #fff;">AUX</div>
-        <div class="palette-tile" data-type="word" data-value="interjection" style="background-color: #E91E63; color: #fff;">INTJ</div>
-        <div class="palette-tile" data-type="word" data-value="relativizer" style="background-color: #9B59B6; color: #fff;">REL</div>
-        <div class="palette-tile" data-type="word" data-value="complementizer" style="background-color: #2C3E50; color: #fff;">COMP</div>
+        <div class="palette-tile" data-type="word" data-value="modal" style="background-color: #8E44AD; color: #fff;" draggable="true">MOD</div>
+        <div class="palette-tile" data-type="word" data-value="auxiliary" style="background-color: #16A085; color: #fff;" draggable="true">AUX</div>
+        <div class="palette-tile" data-type="word" data-value="interjection" style="background-color: #E91E63; color: #fff;" draggable="true">INTJ</div>
+        <div class="palette-tile" data-type="word" data-value="relativizer" style="background-color: #9B59B6; color: #fff;" draggable="true">REL</div>
+        <div class="palette-tile" data-type="word" data-value="complementizer" style="background-color: #2C3E50; color: #fff;" draggable="true">COMP</div>
       </div>
     </div>
   </div>
 
+  <script>
+    // Set up drag and drop functionality for palette tiles
+    document.addEventListener('DOMContentLoaded', function() {
+      const tiles = document.querySelectorAll('.palette-tile');
+      
+      tiles.forEach(tile => {
+        tile.addEventListener('dragstart', function(e) {
+          const data = {
+            type: this.getAttribute('data-type'),
+            value: this.getAttribute('data-value')
+          };
+          e.dataTransfer.setData('text/plain', JSON.stringify(data));
+          e.dataTransfer.effectAllowed = 'copy';
+        });
+      });
+      
+      // Set up canvas drop zone
+      const canvas = document.getElementById('diagram-canvas');
+      
+      canvas.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      });
+      
+      canvas.addEventListener('drop', function(e) {
+        e.preventDefault();
+        // The actual drop handling is in script.js
+      });
+    });
+  </script>
+  
   <script src="script.js"></script>
 </body>
 </html>
