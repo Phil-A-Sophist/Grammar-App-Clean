@@ -1,7 +1,12 @@
 // ===== Fabric setup =====
 const canvas = new fabric.Canvas('diagram-canvas');
 let idCounter = 0;
+
+// connections: parentId -> [childGroupObjs...]
 const connections = {};
+// Optional: quick lookup (rebuilt on relayout)
+let parentOf = {}; // childId -> parentId
+
 let selectedTile = null;
 
 // --- keep Fabric canvas in sync with visible wrapper ---
@@ -85,107 +90,62 @@ const posColors = {
 
 // ===== Tile creation =====
 function createTile(text, color, editable = false) {
-  // Standard 120x40 tile (phrases/clauses)
   const rect = new fabric.Rect({
-    width: 120,
-    height: 40,
-    fill: color,
-    rx: 10,
-    ry: 10,
-    stroke: '#333',
-    strokeWidth: 2,
-    originX: 'center',
-    originY: 'center'
+    width: 120, height: 40, fill: color, rx: 10, ry: 10,
+    stroke: '#333', strokeWidth: 2, originX: 'center', originY: 'center'
   });
 
   const displayText = editable && text === 'type here' ? 'ctrl + click to type' : text;
   const label = new fabric.Text(displayText, {
     fontSize: editable && text === 'type here' ? 10 : 14,
-    fill: '#000',
-    textAlign: 'center',
-    originX: 'center',
-    originY: 'center',
-    fontFamily: 'Arial, sans-serif',
-    textBaseline: 'middle'
+    fill: '#000', textAlign: 'center', originX: 'center', originY: 'center',
+    fontFamily: 'Arial, sans-serif', textBaseline: 'middle'
   });
 
   const group = new fabric.Group([rect, label], {
-    left: 100 + idCounter * 10,
-    top: 50 + idCounter * 10,
-    hasControls: false,
-    lockScalingX: true,
-    lockScalingY: true
+    left: 100 + idCounter * 10, top: 50 + idCounter * 10,
+    hasControls: false, lockScalingX: true, lockScalingY: true
   });
 
   group.customId = `tile-${idCounter++}`;
   group.isEditable = editable;
-  // For standard tiles, the editable text is child index 1
-  group.editTargetIndex = 1;
-
+  group.editTargetIndex = 1; // editable text index for standard tiles
   setupTileEvents(group);
   canvas.add(group);
   return group;
 }
 
-// NEW: two-part word tile (double height with POS code + divider + editable word)
+// Two-part word tile (double height with POS code + divider + editable word)
 function createWordTile(posCode, color) {
-  const WIDTH = 120;
-  const HEIGHT = 80; // twice as tall
+  const WIDTH = 120, HEIGHT = 80;
   const rect = new fabric.Rect({
-    width: WIDTH,
-    height: HEIGHT,
-    fill: color,
-    rx: 10,
-    ry: 10,
-    stroke: '#333',
-    strokeWidth: 2,
-    originX: 'center',
-    originY: 'center'
+    width: WIDTH, height: HEIGHT, fill: color, rx: 10, ry: 10,
+    stroke: '#333', strokeWidth: 2, originX: 'center', originY: 'center'
   });
 
-  // POS code (top half)
   const posText = new fabric.Text(posCode.toUpperCase(), {
-    fontSize: 14,
-    fill: '#fff', // higher contrast on dark POS colors
-    originX: 'center',
-    originY: 'center',
-    top: -HEIGHT / 4, // top half center
-    left: 0,
-    fontFamily: 'Arial, sans-serif'
+    fontSize: 14, fill: '#fff', originX: 'center', originY: 'center',
+    top: -HEIGHT / 4, left: 0, fontFamily: 'Arial, sans-serif'
   });
 
-  // Divider line across the middle (horizontal)
   const divider = new fabric.Line([-WIDTH/2 + 8, 0, WIDTH/2 - 8, 0], {
-    stroke: '#333',
-    strokeWidth: 2,
-    selectable: false,
-    evented: false,
-    originX: 'center',
-    originY: 'center'
+    stroke: '#333', strokeWidth: 2, selectable: false, evented: false,
+    originX: 'center', originY: 'center'
   });
 
-  // Editable word text (bottom half) with tip
   const wordText = new fabric.Text('ctrl + click to type', {
-    fontSize: 10,
-    fill: '#000',
-    originX: 'center',
-    originY: 'center',
-    top: HEIGHT / 4, // bottom half center
-    left: 0,
-    fontFamily: 'Arial, sans-serif'
+    fontSize: 10, fill: '#000', originX: 'center', originY: 'center',
+    top: HEIGHT / 4, left: 0, fontFamily: 'Arial, sans-serif'
   });
 
   const group = new fabric.Group([rect, posText, divider, wordText], {
-    left: 100 + idCounter * 10,
-    top: 50 + idCounter * 10,
-    hasControls: false,
-    lockScalingX: true,
-    lockScalingY: true
+    left: 100 + idCounter * 10, top: 50 + idCounter * 10,
+    hasControls: false, lockScalingX: true, lockScalingY: true
   });
 
   group.customId = `tile-${idCounter++}`;
   group.isEditable = true;
-  group.editTargetIndex = 3; // the bottom word text
+  group.editTargetIndex = 3; // editable area is the bottom text
   group.meta = { kind: 'word', pos: posCode.toLowerCase() };
 
   setupTileEvents(group);
@@ -201,10 +161,9 @@ function setupTileEvents(tile) {
     const currentPos = { x: tile.left, y: tile.top };
     const deltaX = currentPos.x - lastPosition.x;
     const deltaY = currentPos.y - lastPosition.y;
-    moveSubtree(tile, deltaX, deltaY);
+    moveSubtree(tile, deltaX, deltaY);   // dragging a parent drags its whole subtree
     lastPosition = currentPos;
-    maintainHierarchy(tile);
-    updateConnections();
+    updateConnections();                  // redraw lines live while dragging
   });
 
   tile.on('mousedown', (e) => {
@@ -226,13 +185,11 @@ function handleTileDoubleClick(tile) {
     setTileSelected(tile, false);
     selectedTile = null;
   } else {
-    const tile1Y = selectedTile.top;
-    const tile2Y = tile.top;
-    let parent, child;
-    if (tile1Y < tile2Y) { parent = selectedTile; child = tile; }
-    else { parent = tile; child = selectedTile; }
+    // parent is the higher tile
+    const parent = (selectedTile.top < tile.top) ? selectedTile : tile;
+    const child  = (parent === selectedTile) ? tile : selectedTile;
 
-    connectTiles(parent, child);
+    connectTiles(parent, child);   // includes sibling order by x + relayoutAll
     setTileSelected(selectedTile, false);
     selectedTile = null;
   }
@@ -242,8 +199,7 @@ function setTileSelected(tile, isSelected) {
   const rect = tile.item(0);
   if (isSelected) {
     rect.set({
-      stroke: '#0066ff',
-      strokeWidth: 5,
+      stroke: '#0066ff', strokeWidth: 5,
       shadow: new fabric.Shadow({ color: '#0066ff', blur: 10, offsetX: 0, offsetY: 0 })
     });
   } else {
@@ -252,7 +208,6 @@ function setTileSelected(tile, isSelected) {
   canvas.requestRenderAll();
 }
 
-// Make only the editable text change; for word tiles, that's the bottom text
 function editTile(tile) {
   const textObj = (typeof tile.editTargetIndex === 'number')
     ? tile.item(tile.editTargetIndex)
@@ -320,116 +275,169 @@ function editTile(tile) {
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeDialog(false); });
 }
 
-// ===== Connections & layout =====
+// ===== Tree structure helpers =====
+function moveSubtree(parentTile, dx, dy) {
+  const kids = connections[parentTile.customId];
+  if (!kids || kids.length === 0) return;
+  kids.forEach(child => {
+    child.set({ left: child.left + dx, top: child.top + dy });
+    child.setCoords();
+    moveSubtree(child, dx, dy);
+  });
+}
+
+function removeConnection(parent, child) {
+  const pid = parent.customId;
+  if (!connections[pid]) return;
+  connections[pid] = connections[pid].filter(c => c !== child);
+  if (connections[pid].length === 0) delete connections[pid];
+  // full relayout after structural change
+  relayoutAll();
+}
+
 function connectTiles(parentTile, childTile) {
-  const parentId = parentTile.customId;
+  const pid = parentTile.customId, cid = childTile.customId;
 
-  // Remove child from any previous parent
-  Object.entries(connections).forEach(([existingParentId, children]) => {
-    if (children.includes(childTile)) {
-      connections[existingParentId] = connections[existingParentId].filter(c => c !== childTile);
-      if (connections[existingParentId].length === 0) delete connections[existingParentId];
+  // Detach from previous parent (if any)
+  Object.entries(connections).forEach(([existingPid, arr]) => {
+    if (arr.includes(childTile)) {
+      connections[existingPid] = arr.filter(c => c !== childTile);
+      if (connections[existingPid].length === 0) delete connections[existingPid];
     }
   });
 
-  if (!connections[parentId]) connections[parentId] = [];
+  if (!connections[pid]) connections[pid] = [];
 
-  if (!connections[parentId].includes(childTile) && connections[parentId].length < 6) {
-    connections[parentId].push(childTile);
-    if (parentTile.top >= childTile.top) {
-      childTile.set({ top: parentTile.top + 50 });
-      childTile.setCoords();
-    }
-    layoutChildren(parentTile);
+  // Insert child according to current horizontal position among siblings.
+  // We consider centers so "between two" stays between them.
+  const withNew = [...connections[pid], childTile];
+  const centerX = (obj) => obj.getCenterPoint().x;
+  withNew.sort((a, b) => centerX(a) - centerX(b));
+  connections[pid] = withNew;
+
+  // Full relayout after structural change
+  relayoutAll();
+}
+
+// ===== Global auto-layout (tidy-ish)
+function relayoutAll() {
+  // Rebuild parentOf map from connections
+  parentOf = {};
+  Object.entries(connections).forEach(([pid, arr]) => {
+    arr.forEach(ch => { parentOf[ch.customId] = pid; });
+  });
+
+  // Collect all nodes that are part of the tree (either a parent or a child)
+  const graphIds = new Set();
+  Object.keys(connections).forEach(pid => graphIds.add(pid));
+  Object.values(connections).forEach(arr => arr.forEach(ch => graphIds.add(ch.customId)));
+
+  // Build node map (id -> group)
+  const nodes = {};
+  canvas.getObjects().forEach(o => {
+    if (o.type === 'group' && graphIds.has(o.customId)) nodes[o.customId] = o;
+  });
+
+  if (Object.keys(nodes).length === 0) {
     updateConnections();
+    canvas.requestRenderAll();
+    return;
   }
-}
 
-function moveSubtree(parentTile, deltaX, deltaY) {
-  const children = connections[parentTile.customId];
-  if (!children || children.length === 0) return;
-  children.forEach(child => {
-    child.set({ left: child.left + deltaX, top: child.top + deltaY });
-    child.setCoords();
-    moveSubtree(child, deltaX, deltaY);
+  // Roots = graph nodes with no parent
+  const roots = [];
+  graphIds.forEach(id => { if (!parentOf[id]) roots.push(id); });
+
+  // Compute subtree "span" in units for each node (at least 1)
+  const spans = new Map();
+  function computeSpan(id) {
+    const kids = (connections[id] || []).map(ch => ch.customId).filter(k => graphIds.has(k));
+    if (kids.length === 0) { spans.set(id, 1); return 1; }
+    let sum = 0;
+    kids.forEach(k => sum += computeSpan(k));
+    sum = Math.max(1, sum);
+    spans.set(id, sum);
+    return sum;
+  }
+  roots.forEach(r => computeSpan(r));
+
+  // Visual constants
+  const UNIT_W = 140;       // horizontal unit per "slot"
+  const LEVEL_H = 110;      // vertical distance between levels
+  const TOP_MARGIN = 20;
+  const ROOT_GAP_UNITS = 1; // gap between separate roots
+
+  // Keep root order stable and intuitive: by current screen X
+  roots.sort((a, b) => nodes[a].getCenterPoint().x - nodes[b].getCenterPoint().x);
+
+  // Compute total width to center the forest
+  let totalUnits = 0;
+  roots.forEach((r, i) => {
+    totalUnits += spans.get(r);
+    if (i < roots.length - 1) totalUnits += ROOT_GAP_UNITS;
   });
-}
+  const totalPx = totalUnits * UNIT_W;
+  const startX = Math.max(20, (canvas.getWidth() - totalPx) / 2);
 
-function maintainHierarchy(movedTile) {
-  const children = connections[movedTile.customId];
-  if (children && children.length > 0) {
-    children.forEach(child => {
-      if (child.top <= movedTile.top) {
-        const deltaY = (movedTile.top + 50) - child.top;
-        child.set({ top: movedTile.top + 50 });
-        child.setCoords();
-        moveSubtree(child, 0, deltaY);
-      }
+  // Recursive placement
+  function positionTileAt(tile, centerX, topY) {
+    // use the base rect width to avoid stale bounding boxes (fixed 120)
+    const rect = tile.item(0);
+    const halfW = (rect && rect.width) ? rect.width / 2 : 60;
+    tile.set({ left: centerX - halfW, top: topY });
+    tile.setCoords();
+  }
+
+  function assign(id, leftPx, depth) {
+    const tile = nodes[id];
+    const spanUnits = spans.get(id) || 1;
+    const centerX = leftPx + (spanUnits * UNIT_W) / 2;
+    const y = TOP_MARGIN + depth * LEVEL_H;
+
+    positionTileAt(tile, centerX, y);
+
+    // children are laid out left->right in current array order
+    const kids = connections[id] ? connections[id].slice() : [];
+    let childLeftPx = leftPx;
+    kids.forEach(ch => {
+      const cid = ch.customId;
+      const cSpan = spans.get(cid) || 1;
+      assign(cid, childLeftPx, depth + 1);
+      childLeftPx += cSpan * UNIT_W;
     });
-    layoutChildren(movedTile);
   }
-  Object.entries(connections).forEach(([parentId, childrenArray]) => {
-    if (childrenArray.includes(movedTile)) {
-      const parent = canvas.getObjects().find(obj => obj.customId === parentId);
-      if (parent && movedTile.top <= parent.top) {
-        const deltaY = (parent.top + 50) - movedTile.top;
-        movedTile.set({ top: parent.top + 50 });
-        movedTile.setCoords();
-        moveSubtree(movedTile, 0, deltaY);
-      }
-    }
+
+  let cursorUnits = 0;
+  roots.forEach((r, i) => {
+    const leftPx = startX + cursorUnits * UNIT_W;
+    assign(r, leftPx, 0);
+    cursorUnits += spans.get(r) + (i < roots.length - 1 ? ROOT_GAP_UNITS : 0);
   });
+
+  updateConnections();
+  canvas.requestRenderAll();
 }
 
-function layoutChildren(parent) {
-  const children = connections[parent.customId];
-  if (!children || children.length === 0) return;
-  const spacing = 140;
-  const count = children.length;
-  const totalWidth = spacing * (count - 1);
-  const startX = parent.left - totalWidth / 2;
-  const y = parent.top + 50;
-  children.forEach((child, i) => {
-    child.set({ left: startX + i * spacing, top: y });
-    child.setCoords();
-  });
-}
-
+// ===== Lines =====
 function updateConnections() {
+  // remove old connection lines
   const lines = canvas.getObjects('line').filter(l => l.customType === 'connection-line');
   lines.forEach(line => canvas.remove(line));
-  Object.entries(connections).forEach(([parentId, children]) => {
-    const parent = canvas.getObjects().find(obj => obj.customId === parentId);
+
+  Object.entries(connections).forEach(([pid, children]) => {
+    const parent = canvas.getObjects().find(o => o.customId === pid);
     if (!parent) return;
-    const parentCenter = parent.getCenterPoint();
+    const pC = parent.getCenterPoint();
     children.forEach(child => {
-      const childCenter = child.getCenterPoint();
-      const line = new fabric.Line(
-        [parentCenter.x, parentCenter.y, childCenter.x, childCenter.y],
-        { stroke: '#000', strokeWidth: 2, selectable: false, evented: true, customType: 'connection-line' }
-      );
-      line.on('mousedown', (e) => {
-        e.e.stopPropagation();
-        removeConnection(parent, child, line);
+      const cC = child.getCenterPoint();
+      const line = new fabric.Line([pC.x, pC.y, cC.x, cC.y], {
+        stroke: '#000', strokeWidth: 2, selectable: false, evented: true, customType: 'connection-line'
       });
+      line.on('mousedown', (e) => { e.e.stopPropagation(); removeConnection(parent, child); });
       canvas.add(line);
       canvas.sendToBack(line);
     });
   });
-}
-
-function removeConnection(parent, child, line) {
-  canvas.remove(line);
-  const parentId = parent.customId;
-  if (connections[parentId]) {
-    connections[parentId] = connections[parentId].filter(c => c !== child);
-    if (connections[parentId].length === 0) {
-      delete connections[parentId];
-    } else {
-      layoutChildren(parent);
-      updateConnections();
-    }
-  }
 }
 
 // ===== Keyboard =====
@@ -446,22 +454,24 @@ document.addEventListener('keydown', function(e) {
 });
 
 function deleteTile(tile) {
-  const tileId = tile.customId;
-  if (connections[tileId]) delete connections[tileId];
-  Object.entries(connections).forEach(([parentId, children]) => {
-    const index = children.indexOf(tile);
-    if (index > -1) {
-      children.splice(index, 1);
-      if (children.length === 0) delete connections[parentId];
-      else {
-        const parent = canvas.getObjects().find(obj => obj.customId === parentId);
-        if (parent) layoutChildren(parent);
-      }
-    }
+  const tid = tile.customId;
+  if (!tid) return;
+
+  // remove as parent
+  if (connections[tid]) delete connections[tid];
+
+  // remove from any parent's children
+  Object.entries(connections).forEach(([pid, arr]) => {
+    const idx = arr.indexOf(tile);
+    if (idx > -1) arr.splice(idx, 1);
+    if (arr.length === 0) delete connections[pid];
   });
+
   canvas.remove(tile);
   if (selectedTile === tile) selectedTile = null;
-  updateConnections();
+
+  // relayout after structural change
+  relayoutAll();
 }
 
 // ===== Drag & drop from palettes =====
@@ -470,8 +480,8 @@ document.addEventListener('DOMContentLoaded', function() {
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
 
-  const tiles = document.querySelectorAll('.palette-tile');
-  tiles.forEach(tile => {
+  // palette drag helpers
+  document.querySelectorAll('.palette-tile').forEach(tile => {
     tile.addEventListener('dragstart', function(e) {
       const data = { type: this.getAttribute('data-type'), value: this.getAttribute('data-value') };
       e.dataTransfer.setData('text/plain', JSON.stringify(data));
@@ -491,19 +501,16 @@ document.addEventListener('DOMContentLoaded', function() {
       if (!data) return;
       try {
         const dropData = JSON.parse(data);
-        const canvasRect = canvasElement.getBoundingClientRect();
-        const x = e.clientX - canvasRect.left;
-        const y = e.clientY - canvasRect.top;
+        const rect = canvasElement.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
 
         let tile;
         if (dropData.type === 'word') {
-          // NEW: create doubled-height word tile with POS code on top + editable word below
           const color = posColors[dropData.value] || '#ccc';
           tile = createWordTile(dropData.value.toUpperCase(), color);
         } else if (dropData.type === 'phrase') {
-          const phraseColors = {
-            'NP': '#F1948A', 'VP': '#58D68D', 'PP': '#BDC3C7', 'ADJP': '#F7DC6F', 'ADVP': '#85C1E9'
-          };
+          const phraseColors = { NP: '#F1948A', VP: '#58D68D', PP: '#BDC3C7', ADJP: '#F7DC6F', ADVP: '#85C1E9' };
           const color = phraseColors[dropData.value] || '#ccc';
           tile = createTile(dropData.value, color);
         } else if (dropData.type === 'clause') {
@@ -511,14 +518,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (tile) {
-          // center the group where dropped
-          const groupBounds = tile.getBoundingRect(true, true);
-          tile.set({
-            left: x - groupBounds.width / 2,
-            top: y - groupBounds.height / 2
-          });
+          // center the new tile under the cursor
+          const baseRect = tile.item(0);
+          const halfW = (baseRect && baseRect.width) ? baseRect.width / 2 : 60;
+          tile.set({ left: x - halfW, top: y - (tile.height || 40) / 2 });
           tile.setCoords();
           canvas.requestRenderAll();
+          // NOTE: Not invoking relayout here—only when a node is actually connected into the tree.
         }
       } catch (error) {
         console.error('Error parsing drop data:', error);
@@ -528,12 +534,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // Zoom buttons
   document.getElementById('zoom-in').addEventListener('click', () => {
-    const zoom = canvas.getZoom();
-    canvas.setZoom(Math.min(zoom * 1.2, 20));
+    canvas.setZoom(Math.min(canvas.getZoom() * 1.2, 20));
   });
   document.getElementById('zoom-out').addEventListener('click', () => {
-    const zoom = canvas.getZoom();
-    canvas.setZoom(Math.max(zoom * 0.8, 0.01));
+    canvas.setZoom(Math.max(canvas.getZoom() * 0.8, 0.01));
   });
   document.getElementById('zoom-reset').addEventListener('click', () => {
     canvas.setZoom(1);
@@ -562,17 +566,13 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function getTightBounds() {
-    const objs = canvas.getObjects().filter(o =>
-      o.visible && (o.type === 'group' || o.type === 'line')
-    );
+    const objs = canvas.getObjects().filter(o => o.visible && (o.type === 'group' || o.type === 'line'));
     if (objs.length === 0) {
       return { left: 0, top: 0, width: canvas.getWidth(), height: canvas.getHeight() };
     }
     objs.forEach(o => o.setCoords());
 
-    let minX = Infinity, minY = Infinity;
-    let maxX = -Infinity, maxY = -Infinity;
-
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     objs.forEach(o => {
       const ac = o.aCoords || o.calcCoords();
       const xs = [ac.tl.x, ac.tr.x, ac.bl.x, ac.br.x];
@@ -613,41 +613,27 @@ document.addEventListener('DOMContentLoaded', function() {
   async function makeCroppedGifBlob(bounds, multiplier = 2) {
     const dataURL = canvas.toDataURL({
       format: 'png',
-      left: bounds.left,
-      top: bounds.top,
-      width: bounds.width,
-      height: bounds.height,
-      multiplier
+      left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, multiplier
     });
     const img = await loadImage(dataURL);
-
     return new Promise((resolve, reject) => {
       try {
         const gif = new GIF({
-          workers: 2,
-          quality: 10,
-          width: img.width,
-          height: img.height,
+          workers: 2, quality: 10, width: img.width, height: img.height,
           workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
         });
         gif.addFrame(img, { delay: 200, copy: true });
         gif.on('finished', (blob) => resolve(blob));
         gif.on('abort', () => reject(new Error('GIF encoding aborted.')));
         gif.render();
-      } catch (e) {
-        reject(e);
-      }
+      } catch (e) { reject(e); }
     });
   }
 
   async function makeCroppedPngBlob(bounds, multiplier = 2) {
     const dataURL = canvas.toDataURL({
       format: 'png',
-      left: bounds.left,
-      top: bounds.top,
-      width: bounds.width,
-      height: bounds.height,
-      multiplier
+      left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, multiplier
     });
     const res = await fetch(dataURL);
     return await res.blob();
@@ -675,11 +661,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const bounds = getTightBounds();
         const dataURL = canvas.toDataURL({
           format: 'png',
-          left: bounds.left,
-          top: bounds.top,
-          width: bounds.width,
-          height: bounds.height,
-          multiplier: 2
+          left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, multiplier: 2
         });
         window.open(dataURL, '_blank');
         setTimeout(() => setStatus(''), 2500);
@@ -710,11 +692,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const bounds = getTightBounds();
       const dataURL = canvas.toDataURL({
         format: 'png',
-        left: bounds.left,
-        top: bounds.top,
-        width: bounds.width,
-        height: bounds.height,
-        multiplier: 2
+        left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, multiplier: 2
       });
       const a = document.createElement('a');
       a.href = dataURL;
