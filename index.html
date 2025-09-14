@@ -12,9 +12,55 @@
       background-color: #f5f5f5;
     }
 
-    h1 {
-      margin: 20px 0;
+    /* Header with buttons flanking the title */
+    .app-header {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      background: #ffffff;
+      border-bottom: 2px solid #ddd;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .app-header h1 {
+      margin: 0;
       color: #333;
+      font-size: 24px;
+    }
+    .header-left,
+    .header-right {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .header-left {
+      justify-content: flex-start;
+    }
+    .header-right {
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .export-btn {
+      border: 1px solid #333;
+      background: white;
+      cursor: pointer;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 14px;
+      padding: 8px 12px;
+      transition: background 0.2s;
+    }
+    .export-btn:hover {
+      background: #f0f0f0;
+    }
+    .export-status {
+      font-size: 11px;
+      color: #666;
+      margin: 0 10px;
+      min-height: 1em;
     }
 
     .palette-section {
@@ -137,9 +183,7 @@
       border: 1px solid #ddd;
     }
 
-    canvas {
-      border: none;
-    }
+    canvas { border: none; }
 
     /* Stack palettes vertically */
     .top-palettes, .bottom-palettes {
@@ -148,10 +192,22 @@
     }
   </style>
 
+  <!-- Fabric.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.2.4/fabric.min.js"></script>
+  <!-- gif.js (for GIF encoding) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
 </head>
 <body>
-  <h1>Grammar App</h1>
+  <header class="app-header">
+    <div class="header-left">
+      <button id="copy-tree" class="export-btn">copy tree</button>
+    </div>
+    <h1>Grammar App</h1>
+    <div class="header-right">
+      <span id="export-status" class="export-status"></span>
+      <button id="download-tree" class="export-btn">download tree</button>
+    </div>
+  </header>
 
   <div class="top-palettes">
     <div class="palette-section clauses-section">
@@ -211,10 +267,9 @@
   </div>
 
   <script>
-    // Set up drag and drop functionality for palette tiles
+    // Keep the existing drag-start helper for palette tiles so script.js can read it
     document.addEventListener('DOMContentLoaded', function() {
       const tiles = document.querySelectorAll('.palette-tile');
-      
       tiles.forEach(tile => {
         tile.addEventListener('dragstart', function(e) {
           const data = {
@@ -225,22 +280,19 @@
           e.dataTransfer.effectAllowed = 'copy';
         });
       });
-      
-      // Set up canvas drop zone
+
+      // Canvas element accepts drops; actual handling is in script.js
       const canvas = document.getElementById('diagram-canvas');
-      
       canvas.addEventListener('dragover', function(e) {
         e.preventDefault();
         e.dataTransfer.dropEffect = 'copy';
       });
-      
       canvas.addEventListener('drop', function(e) {
         e.preventDefault();
-        // The actual drop handling is in script.js
       });
     });
   </script>
-  
+
   <script src="script.js"></script>
 </body>
 </html>
