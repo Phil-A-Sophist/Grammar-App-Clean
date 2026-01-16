@@ -8,6 +8,12 @@ const connections = {};
 let parentOf = {}; // childId -> parentId
 
 let selectedTile = null;
+let connectionPreviewLine = null;  // Preview line from selected tile to cursor
+
+// ===== Snapping and smoothness settings =====
+const SNAP_DISTANCE = 20;        // pixels for magnetic snap
+const ANIMATION_DURATION = 150;  // ms for smooth transitions
+const GRID_SNAP = false;         // set true for grid-based snapping
 
 // --- keep Fabric canvas in sync with visible wrapper ---
 function resizeCanvas() {
@@ -20,6 +26,146 @@ function resizeCanvas() {
   canvas.calcOffset();
   canvas.requestRenderAll();
 }
+
+// ===== Smooth animation helper =====
+function animateTileTo(tile, targetLeft, targetTop, duration = ANIMATION_DURATION) {
+  return new Promise(resolve => {
+    const startLeft = tile.left;
+    const startTop = tile.top;
+    const startTime = performance.now();
+
+    function animate(currentTime) {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease-out cubic for smooth deceleration
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      tile.set({
+        left: startLeft + (targetLeft - startLeft) * eased,
+        top: startTop + (targetTop - startTop) * eased
+      });
+      tile.setCoords();
+      canvas.requestRenderAll();
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        resolve();
+      }
+    }
+    requestAnimationFrame(animate);
+  });
+}
+
+// ===== Snap-to-grid and proximity snapping =====
+function getSnapPosition(tile, ignoreId = null) {
+  const tileCenter = tile.getCenterPoint();
+  let snapX = null, snapY = null;
+
+  // Get all other tiles for proximity snapping
+  const otherTiles = canvas.getObjects().filter(o =>
+    o.type === 'group' && o.customId && o.customId !== ignoreId && o.customId !== tile.customId
+  );
+
+  // Find nearest vertical alignment (center-to-center)
+  otherTiles.forEach(other => {
+    const otherCenter = other.getCenterPoint();
+    const dx = Math.abs(tileCenter.x - otherCenter.x);
+    const dy = Math.abs(tileCenter.y - otherCenter.y);
+
+    // Horizontal alignment (snap centers vertically)
+    if (dx < SNAP_DISTANCE && (snapX === null || dx < Math.abs(tileCenter.x - snapX))) {
+      snapX = otherCenter.x;
+    }
+    // Vertical alignment (snap centers horizontally)
+    if (dy < SNAP_DISTANCE && (snapY === null || dy < Math.abs(tileCenter.y - snapY))) {
+      snapY = otherCenter.y;
+    }
+  });
+
+  return { snapX, snapY };
+}
+
+function applySnap(tile) {
+  const { snapX, snapY } = getSnapPosition(tile);
+  const tileCenter = tile.getCenterPoint();
+  const rect = tile.item(0);
+  const halfW = (rect && rect.width) ? rect.width / 2 : 60;
+  const halfH = tile.height / 2;
+
+  if (snapX !== null) {
+    tile.set({ left: snapX - halfW });
+  }
+  if (snapY !== null) {
+    tile.set({ top: snapY - halfH });
+  }
+  tile.setCoords();
+}
+
+// ===== Connection preview system =====
+function updateConnectionPreview(mouseX, mouseY) {
+  if (!selectedTile) {
+    removeConnectionPreview();
+    return;
+  }
+
+  const selectedCenter = selectedTile.getCenterPoint();
+
+  if (!connectionPreviewLine) {
+    connectionPreviewLine = new fabric.Line(
+      [selectedCenter.x, selectedCenter.y, mouseX, mouseY],
+      {
+        stroke: '#0066ff',
+        strokeWidth: 2,
+        strokeDashArray: [8, 4],
+        selectable: false,
+        evented: false,
+        customType: 'preview-line',
+        opacity: 0.7
+      }
+    );
+    canvas.add(connectionPreviewLine);
+    canvas.sendToBack(connectionPreviewLine);
+  } else {
+    connectionPreviewLine.set({
+      x1: selectedCenter.x,
+      y1: selectedCenter.y,
+      x2: mouseX,
+      y2: mouseY
+    });
+  }
+  canvas.requestRenderAll();
+}
+
+function removeConnectionPreview() {
+  if (connectionPreviewLine) {
+    canvas.remove(connectionPreviewLine);
+    connectionPreviewLine = null;
+    canvas.requestRenderAll();
+  }
+}
+
+// Highlight potential connection targets
+function highlightConnectionTarget(tile, highlight) {
+  if (!tile || tile === selectedTile) return;
+  const rect = tile.item(0);
+  if (highlight) {
+    rect.set({
+      stroke: '#00cc44',
+      strokeWidth: 3,
+      shadow: new fabric.Shadow({ color: '#00cc44', blur: 8, offsetX: 0, offsetY: 0 })
+    });
+  } else {
+    // Restore normal state
+    if (selectedTile !== tile) {
+      rect.set({ stroke: '#333', strokeWidth: 2, shadow: null });
+    }
+  }
+  canvas.requestRenderAll();
+}
+
+// Track hovered tile for connection highlighting
+let hoveredTile = null;
 
 // ===== Zoom / pan =====
 canvas.on('mouse:wheel', function(opt) {
@@ -45,6 +191,11 @@ canvas.on('mouse:down', function(opt) {
     if (selectedTile) {
       setTileSelected(selectedTile, false);
       selectedTile = null;
+      removeConnectionPreview();
+      if (hoveredTile) {
+        highlightConnectionTarget(hoveredTile, false);
+        hoveredTile = null;
+      }
     }
     this.isDragging = true;
     this.selection = false;
@@ -62,6 +213,25 @@ canvas.on('mouse:move', function(opt) {
     this.requestRenderAll();
     this.lastPosX = e.clientX;
     this.lastPosY = e.clientY;
+  }
+
+  // Update connection preview line if a tile is selected
+  if (selectedTile && !this.isDragging) {
+    const pointer = canvas.getPointer(opt.e);
+    updateConnectionPreview(pointer.x, pointer.y);
+
+    // Highlight tile under cursor as potential connection target
+    const target = opt.target;
+    if (target && target.type === 'group' && target.customId && target !== selectedTile) {
+      if (hoveredTile && hoveredTile !== target) {
+        highlightConnectionTarget(hoveredTile, false);
+      }
+      hoveredTile = target;
+      highlightConnectionTarget(hoveredTile, true);
+    } else if (hoveredTile) {
+      highlightConnectionTarget(hoveredTile, false);
+      hoveredTile = null;
+    }
   }
 });
 
@@ -156,24 +326,107 @@ function createWordTile(posCode, color) {
 // ===== Tile events =====
 function setupTileEvents(tile) {
   let lastPosition = { x: 0, y: 0 };
+  let isDragging = false;
+  let snapGuides = [];
+
+  // Show snap guides during drag
+  function showSnapGuides(tile) {
+    clearSnapGuides();
+    const { snapX, snapY } = getSnapPosition(tile);
+    const tileCenter = tile.getCenterPoint();
+
+    if (snapX !== null) {
+      const vLine = new fabric.Line([snapX, 0, snapX, canvas.getHeight()], {
+        stroke: '#0066ff', strokeWidth: 1, strokeDashArray: [5, 5],
+        selectable: false, evented: false, customType: 'snap-guide', opacity: 0.6
+      });
+      snapGuides.push(vLine);
+      canvas.add(vLine);
+    }
+    if (snapY !== null) {
+      const hLine = new fabric.Line([0, snapY, canvas.getWidth(), snapY], {
+        stroke: '#0066ff', strokeWidth: 1, strokeDashArray: [5, 5],
+        selectable: false, evented: false, customType: 'snap-guide', opacity: 0.6
+      });
+      snapGuides.push(hLine);
+      canvas.add(hLine);
+    }
+  }
+
+  function clearSnapGuides() {
+    snapGuides.forEach(g => canvas.remove(g));
+    snapGuides = [];
+  }
 
   tile.on('moving', () => {
+    isDragging = true;
     const currentPos = { x: tile.left, y: tile.top };
     const deltaX = currentPos.x - lastPosition.x;
     const deltaY = currentPos.y - lastPosition.y;
-    moveSubtree(tile, deltaX, deltaY);   // dragging a parent drags its whole subtree
+    moveSubtree(tile, deltaX, deltaY);
     lastPosition = currentPos;
-    updateConnections();                  // redraw lines live while dragging
+    updateConnections();
+
+    // Show snap guides while dragging (only for unconnected or root tiles)
+    if (!parentOf[tile.customId]) {
+      showSnapGuides(tile);
+    }
   });
 
   tile.on('mousedown', (e) => {
     lastPosition = { x: tile.left, y: tile.top };
+    isDragging = false;
     e.e.stopPropagation();
+
+    // Add subtle lift effect
+    tile.set({ shadow: new fabric.Shadow({ color: 'rgba(0,0,0,0.3)', blur: 12, offsetX: 4, offsetY: 4 }) });
+    canvas.requestRenderAll();
+  });
+
+  tile.on('mouseup', () => {
+    clearSnapGuides();
+
+    // Remove lift effect
+    if (selectedTile !== tile) {
+      tile.set({ shadow: null });
+      tile.item(0).set({ shadow: null });
+    }
+
+    // Apply snap on drop (only for unconnected tiles)
+    if (isDragging && !parentOf[tile.customId]) {
+      applySnap(tile);
+      updateConnections();
+    }
+    isDragging = false;
+    canvas.requestRenderAll();
   });
 
   tile.on('mousedblclick', (e) => {
     e.e.stopPropagation();
     handleTileDoubleClick(tile);
+  });
+
+  // Hover effect for tiles - subtle scale and shadow
+  tile.on('mouseover', () => {
+    if (selectedTile !== tile && !isDragging) {
+      tile.set({
+        scaleX: 1.02,
+        scaleY: 1.02,
+        shadow: new fabric.Shadow({ color: 'rgba(0,0,0,0.15)', blur: 8, offsetX: 2, offsetY: 2 })
+      });
+      canvas.requestRenderAll();
+    }
+  });
+
+  tile.on('mouseout', () => {
+    if (selectedTile !== tile && !isDragging) {
+      tile.set({
+        scaleX: 1,
+        scaleY: 1,
+        shadow: null
+      });
+      canvas.requestRenderAll();
+    }
   });
 }
 
@@ -184,10 +437,22 @@ function handleTileDoubleClick(tile) {
   } else if (selectedTile === tile) {
     setTileSelected(tile, false);
     selectedTile = null;
+    removeConnectionPreview();
+    if (hoveredTile) {
+      highlightConnectionTarget(hoveredTile, false);
+      hoveredTile = null;
+    }
   } else {
     // parent is the higher tile
     const parent = (selectedTile.top < tile.top) ? selectedTile : tile;
     const child  = (parent === selectedTile) ? tile : selectedTile;
+
+    // Clean up visuals before connecting
+    removeConnectionPreview();
+    if (hoveredTile) {
+      highlightConnectionTarget(hoveredTile, false);
+      hoveredTile = null;
+    }
 
     connectTiles(parent, child);   // includes sibling order by x + relayoutAll
     setTileSelected(selectedTile, false);
@@ -379,30 +644,29 @@ function relayoutAll() {
   const totalPx = totalUnits * UNIT_W;
   const startX = Math.max(20, (canvas.getWidth() - totalPx) / 2);
 
-  // Recursive placement
-  function positionTileAt(tile, centerX, topY) {
-    // use the base rect width to avoid stale bounding boxes (fixed 120)
+  // Collect target positions for animated transition
+  const targetPositions = new Map();
+
+  function computeTargetPosition(tile, centerX, topY) {
     const rect = tile.item(0);
     const halfW = (rect && rect.width) ? rect.width / 2 : 60;
-    tile.set({ left: centerX - halfW, top: topY });
-    tile.setCoords();
+    return { left: centerX - halfW, top: topY };
   }
 
-  function assign(id, leftPx, depth) {
+  function assignTargets(id, leftPx, depth) {
     const tile = nodes[id];
     const spanUnits = spans.get(id) || 1;
     const centerX = leftPx + (spanUnits * UNIT_W) / 2;
     const y = TOP_MARGIN + depth * LEVEL_H;
 
-    positionTileAt(tile, centerX, y);
+    targetPositions.set(id, computeTargetPosition(tile, centerX, y));
 
-    // children are laid out left->right in current array order
     const kids = connections[id] ? connections[id].slice() : [];
     let childLeftPx = leftPx;
     kids.forEach(ch => {
       const cid = ch.customId;
       const cSpan = spans.get(cid) || 1;
-      assign(cid, childLeftPx, depth + 1);
+      assignTargets(cid, childLeftPx, depth + 1);
       childLeftPx += cSpan * UNIT_W;
     });
   }
@@ -410,12 +674,46 @@ function relayoutAll() {
   let cursorUnits = 0;
   roots.forEach((r, i) => {
     const leftPx = startX + cursorUnits * UNIT_W;
-    assign(r, leftPx, 0);
+    assignTargets(r, leftPx, 0);
     cursorUnits += spans.get(r) + (i < roots.length - 1 ? ROOT_GAP_UNITS : 0);
   });
 
-  updateConnections();
-  canvas.requestRenderAll();
+  // Animate all tiles to their target positions
+  const duration = ANIMATION_DURATION;
+  const startTime = performance.now();
+  const startPositions = new Map();
+
+  // Store start positions
+  targetPositions.forEach((target, id) => {
+    const tile = nodes[id];
+    startPositions.set(id, { left: tile.left, top: tile.top });
+  });
+
+  function animateRelayout(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    // Ease-out cubic
+    const eased = 1 - Math.pow(1 - progress, 3);
+
+    targetPositions.forEach((target, id) => {
+      const tile = nodes[id];
+      const start = startPositions.get(id);
+      tile.set({
+        left: start.left + (target.left - start.left) * eased,
+        top: start.top + (target.top - start.top) * eased
+      });
+      tile.setCoords();
+    });
+
+    updateConnections();
+    canvas.requestRenderAll();
+
+    if (progress < 1) {
+      requestAnimationFrame(animateRelayout);
+    }
+  }
+
+  requestAnimationFrame(animateRelayout);
 }
 
 // ===== Lines =====
@@ -431,9 +729,26 @@ function updateConnections() {
     children.forEach(child => {
       const cC = child.getCenterPoint();
       const line = new fabric.Line([pC.x, pC.y, cC.x, cC.y], {
-        stroke: '#000', strokeWidth: 2, selectable: false, evented: true, customType: 'connection-line'
+        stroke: '#333', strokeWidth: 2, selectable: false, evented: true, customType: 'connection-line',
+        hoverCursor: 'pointer'
       });
-      line.on('mousedown', (e) => { e.e.stopPropagation(); removeConnection(parent, child); });
+
+      // Click to remove connection
+      line.on('mousedown', (e) => {
+        e.e.stopPropagation();
+        removeConnection(parent, child);
+      });
+
+      // Hover effect on lines - show they're clickable
+      line.on('mouseover', () => {
+        line.set({ stroke: '#cc0000', strokeWidth: 3 });
+        canvas.requestRenderAll();
+      });
+      line.on('mouseout', () => {
+        line.set({ stroke: '#333', strokeWidth: 2 });
+        canvas.requestRenderAll();
+      });
+
       canvas.add(line);
       canvas.sendToBack(line);
     });
@@ -449,6 +764,11 @@ document.addEventListener('keydown', function(e) {
     if (selectedTile) {
       setTileSelected(selectedTile, false);
       selectedTile = null;
+      removeConnectionPreview();
+      if (hoveredTile) {
+        highlightConnectionTarget(hoveredTile, false);
+        hoveredTile = null;
+      }
     }
   }
 });
@@ -497,6 +817,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     canvasElement.addEventListener('drop', function(e) {
       e.preventDefault();
+      canvasElement.classList.remove('drag-over');
       const data = e.dataTransfer.getData('text/plain');
       if (!data) return;
       try {
@@ -518,17 +839,52 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (tile) {
-          // center the new tile under the cursor
           const baseRect = tile.item(0);
           const halfW = (baseRect && baseRect.width) ? baseRect.width / 2 : 60;
-          tile.set({ left: x - halfW, top: y - (tile.height || 40) / 2 });
+          const targetLeft = x - halfW;
+          const targetTop = y - (tile.height || 40) / 2;
+
+          // Start with a drop animation - tile appears slightly above and fades/slides in
+          tile.set({
+            left: targetLeft,
+            top: targetTop - 20,
+            opacity: 0.3
+          });
           tile.setCoords();
           canvas.requestRenderAll();
-          // NOTE: Not invoking relayout here—only when a node is actually connected into the tree.
+
+          // Animate tile dropping into place
+          const startTime = performance.now();
+          const duration = 120;
+          function animateDrop(currentTime) {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            const eased = 1 - Math.pow(1 - progress, 2);
+
+            tile.set({
+              top: (targetTop - 20) + 20 * eased,
+              opacity: 0.3 + 0.7 * eased
+            });
+            tile.setCoords();
+            canvas.requestRenderAll();
+
+            if (progress < 1) {
+              requestAnimationFrame(animateDrop);
+            }
+          }
+          requestAnimationFrame(animateDrop);
         }
       } catch (error) {
         console.error('Error parsing drop data:', error);
       }
+    });
+
+    // Visual feedback when dragging over canvas
+    canvasElement.addEventListener('dragenter', function(e) {
+      canvasElement.classList.add('drag-over');
+    });
+    canvasElement.addEventListener('dragleave', function(e) {
+      canvasElement.classList.remove('drag-over');
     });
   }
 
@@ -566,7 +922,12 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function getTightBounds() {
-    const objs = canvas.getObjects().filter(o => o.visible && (o.type === 'group' || o.type === 'line'));
+    // Filter to only get diagram objects (groups and connection lines, not preview/snap guides)
+    const objs = canvas.getObjects().filter(o =>
+      o.visible &&
+      (o.type === 'group' || (o.type === 'line' && o.customType === 'connection-line'))
+    );
+
     if (objs.length === 0) {
       return { left: 0, top: 0, width: canvas.getWidth(), height: canvas.getHeight() };
     }
@@ -585,8 +946,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const width = Math.max(1, maxX - minX);
     const height = Math.max(1, maxY - minY);
-    const padX = Math.max(20, width * 0.08);
-    const padY = Math.max(20, height * 0.08);
+    // Generous padding for better image framing
+    const padX = Math.max(30, width * 0.10);
+    const padY = Math.max(30, height * 0.10);
 
     let left = Math.floor(minX - padX);
     let top = Math.floor(minY - padY);
@@ -599,6 +961,16 @@ document.addEventListener('DOMContentLoaded', function() {
     h = Math.min(canvas.getHeight() - top, h);
 
     return { left, top, width: w, height: h };
+  }
+
+  // Visual feedback flash when export succeeds
+  function flashExportSuccess() {
+    const wrapper = document.getElementById('canvas-wrapper');
+    wrapper.style.transition = 'box-shadow 0.2s ease';
+    wrapper.style.boxShadow = '0 0 20px 5px rgba(0, 200, 100, 0.5)';
+    setTimeout(() => {
+      wrapper.style.boxShadow = '';
+    }, 300);
   }
 
   function loadImage(dataURL) {
@@ -639,67 +1011,77 @@ document.addEventListener('DOMContentLoaded', function() {
     return await res.blob();
   }
 
-  // COPY (cropped; GIF first, PNG fallback)
+  // COPY (cropped PNG - high quality, widely supported)
   document.getElementById('copy-tree').addEventListener('click', async () => {
     try {
       const bounds = getTightBounds();
-      setStatus('Generating cropped GIF for clipboard…');
-      const gifBlob = await withWhiteBackground(() => makeCroppedGifBlob(bounds, 2));
-      const gifItem = new ClipboardItem({ 'image/gif': gifBlob });
-      await navigator.clipboard.write([gifItem]);
-      setStatus('Copied cropped GIF ✅');
-    } catch (e) {
+      setStatus('Copying to clipboard…');
+
+      // Use PNG directly for better quality and faster processing
+      const pngBlob = await withWhiteBackground(() => makeCroppedPngBlob(bounds, 3));
+      const pngItem = new ClipboardItem({ 'image/png': pngBlob });
+      await navigator.clipboard.write([pngItem]);
+
+      flashExportSuccess();
+      setStatus('Copied to clipboard ✓');
+    } catch (err) {
+      // Fallback: open in new tab
       try {
+        setStatus('Opening image in new tab…');
         const bounds = getTightBounds();
-        setStatus('GIF not supported, copying cropped PNG…');
-        const pngBlob = await withWhiteBackground(() => makeCroppedPngBlob(bounds, 2));
-        const pngItem = new ClipboardItem({ 'image/png': pngBlob });
-        await navigator.clipboard.write([pngItem]);
-        setStatus('Copied cropped PNG ✅');
-      } catch (err) {
-        setStatus('Clipboard blocked. Opening image in new tab…');
-        const bounds = getTightBounds();
-        const dataURL = canvas.toDataURL({
+        const dataURL = await withWhiteBackground(() => canvas.toDataURL({
           format: 'png',
-          left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, multiplier: 2
-        });
+          left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, multiplier: 3
+        }));
         window.open(dataURL, '_blank');
-        setTimeout(() => setStatus(''), 2500);
+        setStatus('Image opened in new tab');
+      } catch (e2) {
+        setStatus('Export failed');
+        console.error(e2);
       }
     }
     setTimeout(() => setStatus(''), 2500);
   });
 
-  // DOWNLOAD (cropped GIF; PNG fallback)
+  // DOWNLOAD (high-quality cropped PNG)
   document.getElementById('download-tree').addEventListener('click', async () => {
     try {
-      setStatus('Generating cropped GIF…');
+      setStatus('Preparing download…');
       const bounds = getTightBounds();
-      const blob = await withWhiteBackground(() => makeCroppedGifBlob(bounds, 2));
-      const url = URL.createObjectURL(blob);
+
+      // Use PNG for maximum quality and compatibility
+      const pngBlob = await withWhiteBackground(() => makeCroppedPngBlob(bounds, 3));
+      const url = URL.createObjectURL(pngBlob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'grammar-tree.gif';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setStatus('Cropped GIF downloaded ✅');
-      setTimeout(() => setStatus(''), 2500);
-    } catch (e) {
-      console.error(e);
-      setStatus('GIF failed. Downloading cropped PNG instead…');
-      const bounds = getTightBounds();
-      const dataURL = canvas.toDataURL({
-        format: 'png',
-        left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, multiplier: 2
-      });
-      const a = document.createElement('a');
-      a.href = dataURL;
       a.download = 'grammar-tree.png';
       document.body.appendChild(a);
       a.click();
       a.remove();
+      URL.revokeObjectURL(url);
+
+      flashExportSuccess();
+      setStatus('Downloaded ✓');
+      setTimeout(() => setStatus(''), 2500);
+    } catch (e) {
+      console.error(e);
+      // Fallback using dataURL directly
+      try {
+        const bounds = getTightBounds();
+        const dataURL = await withWhiteBackground(() => canvas.toDataURL({
+          format: 'png',
+          left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height, multiplier: 3
+        }));
+        const a = document.createElement('a');
+        a.href = dataURL;
+        a.download = 'grammar-tree.png';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setStatus('Downloaded ✓');
+      } catch (e2) {
+        setStatus('Download failed');
+      }
       setTimeout(() => setStatus(''), 2500);
     }
   });
