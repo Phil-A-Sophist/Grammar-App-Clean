@@ -19,8 +19,12 @@ const GRID_SNAP = false;         // set true for grid-based snapping
 function resizeCanvas() {
   const wrapper = document.getElementById('canvas-wrapper');
   if (!wrapper) return;
-  const newWidth = Math.max(600, Math.floor(wrapper.clientWidth));
-  const newHeight = Math.max(300, Math.floor(wrapper.clientHeight));
+
+  // Get the actual available space in the wrapper
+  const rect = wrapper.getBoundingClientRect();
+  const newWidth = Math.max(400, Math.floor(rect.width));
+  const newHeight = Math.max(200, Math.floor(rect.height));
+
   canvas.setWidth(newWidth);
   canvas.setHeight(newHeight);
   canvas.calcOffset();
@@ -796,8 +800,8 @@ function deleteTile(tile) {
 
 // ===== Drag & drop from palettes =====
 document.addEventListener('DOMContentLoaded', function() {
-  // sync size now & on resize
-  resizeCanvas();
+  // sync size now & on resize (with small delay to ensure layout is complete)
+  setTimeout(resizeCanvas, 10);
   window.addEventListener('resize', resizeCanvas);
 
   // palette drag helpers
