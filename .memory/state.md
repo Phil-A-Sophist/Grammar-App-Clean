@@ -1,23 +1,32 @@
-# Project State — Grammar App
+# Project State — Grammar App (Clean)
 
 ## Task Counter: 1
 
 ## Project Description
-Grammar App is a client-side sentence diagramming tool for grammar students. Users drag clause, phrase, and part-of-speech tiles onto an HTML5 canvas (Fabric.js), connect them into tree diagrams, and export as PNG. No build step, no backend -- pure static HTML/JS/CSS.
+Grammar App (Clean) is a client-side sentence diagramming tool for grammar students. Users drag clause, phrase, and part-of-speech tiles from HTML palettes onto a Fabric.js canvas, connect them into tree diagrams via double-click, and export as high-resolution PNG. No build step, no backend -- pure static HTML/JS/CSS with two CDN dependencies (Fabric.js 5.2.4, gif.js 0.2.0).
+
+## Current State
+- `index.html` (~338 lines) — Full UI layout: header with export buttons, top palettes (clauses/phrases), Fabric.js canvas workspace with zoom controls, bottom palettes (open-class/closed-class POS). Loads Fabric.js and gif.js from CDN. Inline drag-start event setup.
+- `script.js` (~1,093 lines) — Core application logic: Fabric.js canvas setup, tile creation (createTile/createWordTile), connection system (double-click workflow), auto-layout engine (relayoutAll with animated tidy tree), drag-and-drop from HTML to canvas, zoom/pan, PNG export (copy-to-clipboard + download), snap guides, connection preview.
+- `style.css` — Empty; all styles are inline in `index.html`.
+- `INSTRUCTIONS.md` — Comprehensive user-facing documentation (203 lines): interactions, tile reference, keyboard shortcuts, troubleshooting.
+- `CLAUDE.md` deployed; `.memory/` system intact; `.claude/` folder with commands and skills.
+- 4 `tmpclaude-*-cwd` temp files in repo root (leftover artifacts, should be cleaned up or gitignored).
 
 ## Active Work
-- Initial memory system setup completed (task 1).
 - No active feature development or bug fixes in progress.
+- Project is in a stable, fully functional state.
 
 ## Open Threads
-- `style.css` exists but is essentially empty; most styling is inline in `index.html`. Could be consolidated.
-- gif.js is loaded from CDN but not actively used by any export button (PNG is used instead). Could be removed.
-- No test framework or automated testing exists.
-- Several `tmpclaude-*-cwd` temp files exist in the repo root and should likely be gitignored or removed.
+- `style.css` is empty; all styles inline in `index.html`. Could be consolidated.
+- gif.js is loaded from CDN but only PNG export is used by the buttons. `makeCroppedGifBlob()` function exists but is unused. Could remove gif.js dependency.
+- No test framework or automated testing.
+- 4 `tmpclaude-*-cwd` temp files in repo root should be gitignored or removed.
+- No touch/mobile support.
 
 ## Direction
-- Project is in a stable, functional state.
-- Memory system initialized on 2026-02-07.
+- Project is stable and feature-complete for core use case (building and exporting sentence tree diagrams).
+- This is the advanced version of Grammar-App (the simpler prototype is in `Grammar-App/`).
 
-## Initialization Note
-Cold start: memory system created from full project scan. All `.memory/` files built from scratch.
+## Last Updated
+- 2026-02-15: v3 deployment health check — verified all files, updated memory to reflect current state

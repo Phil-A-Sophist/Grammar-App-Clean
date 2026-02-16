@@ -21,6 +21,11 @@
 **Context:** Fallback for clipboard: opens image in new tab. Fallback for download: uses dataURL instead of blob.
 
 ## Interaction Model
-**Current approach:** Drag-and-drop from HTML palette tiles to Fabric canvas. Double-click to select/connect tiles. Ctrl+click to edit text. Click connection lines to remove them. Delete/Backspace to remove selected tile. Escape to deselect. Mouse wheel for zoom, click-drag on empty space to pan.
+**Current approach:** Drag-and-drop from HTML palette tiles to Fabric canvas. Double-click to select/connect tiles. Ctrl+click to edit text (opens modal dialog). Click connection lines to remove them (lines turn red on hover). Delete/Backspace to remove selected tile. Escape to deselect. Mouse wheel for zoom, click-drag on empty space to pan. Zoom buttons (+, -, Reset) in top-right of canvas.
 **Previously tried:** N/A.
-**Context:** Snap guides appear for unconnected tiles during drag. Connection preview (dashed blue line) follows cursor when a tile is selected.
+**Context:** Snap guides appear for unconnected tiles during drag. Connection preview (dashed blue line) follows cursor when a tile is selected. Green glow highlights potential connection targets on hover. Tiles have subtle lift shadow on mousedown and scale-up hover effect.
+
+## Relationship to Grammar-App
+**Current approach:** Grammar-App-Clean is the advanced, feature-complete version. Grammar-App (in `Grammar-App/`) is the simpler earlier prototype with no Fabric.js, no connections, no tree layout, no export.
+**Previously tried:** N/A.
+**Context:** Both share the same educational purpose (sentence diagramming for grammar students) but Grammar-App-Clean is the version with the full feature set.
